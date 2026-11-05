@@ -21,6 +21,11 @@
 - 匿名与隐私：匿名经验帖在详情、列表、评论、通知中均不返回 `author`/`owner`/`email`/`user_id` 字段，展示名固定“同校已验证”；匿名评价公开列表同样无作者字段；运营待审队列（帖子/评价/举报/纠错）不含作者关联字段。
 - 契约：`/openapi.json` 为 OpenAPI 3.1.0，44 path / 52 operation 与注册路由一一对应；抽样 GET 响应与 schema 对照无字段漂移；请求 schema 的必填项与运行时一致（`image_urls`、`topic_tags`、`tags`、`display_identity` 均可省略）。
 - 健壮性与限流：畸形 JSON、数组请求体、错误 Content-Type 均 400；`GET /auth/login` 405；分页与搜索边界（`page=0`、`page_size=101`、超长 `q`、非数字页码）400；`/posts/abc`、`/posts/-1` 400；不存在的课程返回空帖子列表；`/uploads/{name}` 路径穿越与随机名均 404；向他人通知写已读 404；篡改或伪造访问令牌 401；未审核与已下架的帖子不可点赞/评论；登录连续失利在每分钟第 11 次返回 429，且不影响已签发的 access token。
+- 已修课程：标记 200 且出现在 `GET /users/me/courses`，重复标记幂等 200，取消 204 并移出列表，重复取消仍 204，不存在的课程 404，未登录 401。
+- 通知已读：`POST /notifications/{id}/read` 204 且 `read_at` 落库，重复调用仍 204（幂等），操作他人通知 404。
+- 课程纠错：空字段与未知字段 400（该接口使用 `DisallowUnknownFields`），合法提交 201；普通用户读队列/审核 403；管理员 accept 后课程字段立即更新、纠错人收到 `course_correction_result` 通知，重复审核 404。
+- 话题标签与社区设置：创建 201、重名 409、空名 400、普通用户 403；停用后从公开 `GET /topic-tags` 消失但仍在管理列表；改名 200、空 PATCH 400。社区设置 PUT 仅管理员可写，`content_review_sla_hours=0` 400，`GET /community-guidelines` 读到更新值。
+- 运营指标：字段与契约一致，且与数据库实查吻合（已发布评价 4、经验帖 6、近 30 天举报 3、近 30 天活跃浏览账号 2，举报率 30% = 3/(4+6)×100）。
 
 ## 本轮修复
 
@@ -52,7 +57,7 @@
 - 真机/模拟器联调与页面走查：需要 Expo Go 或 Android 构建环境。
 - 真实城大课程表导入：需要正式数据源。
 - 多实例部署的共享限流：当前为单进程内存按 IP 窗口。
-- 未知 JSON 字段被静默忽略：请求体拼错字段名（如用 `tags` 代替 `topic_tags`）仍返回 2xx，字段则不生效；如需严格校验需改用 `DisallowUnknownFields`，属行为变更，待确认后再做。
+- 未知 JSON 字段处理不一致：课程纠错接口使用 `DisallowUnknownFields`，帖子/评价等接口静默忽略拼错的字段名（例如 `tags` 代替 `topic_tags`），请求仍返回 2xx 但字段不生效。统一严格校验属行为变更，待确认后再做。
 - Huma 类型化业务 handler 迁移：契约已生成，运行时校验仍在 `net/http` handler。
 
 ## 产品待确认
