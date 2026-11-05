@@ -2,6 +2,7 @@ const { withAndroidManifest } = require('@expo/config-plugins');
 
 module.exports = ({ config }) => withAndroidManifest({
   ...config,
+  plugins: [...(config.plugins ?? []), 'expo-secure-store', 'expo-image-picker'],
   android: { ...config.android },
 }, (config) => {
   const app = config.modResults.manifest.application?.[0];

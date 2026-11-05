@@ -7,16 +7,22 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "generate:api-types": "cd ../backend && go run ./cmd/openapi -out ../mobile/openapi.json && cd ../mobile && openapi-typescript openapi.json -o src/api/generated.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.106.0",
     "expo": "~54.0.0",
+    "expo-document-picker": "~14.0.8",
+    "expo-image-picker": "~17.0.11",
+    "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.0",
     "react": "19.1.0",
     "react-native": "^0.81.5"
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "openapi-typescript": "^7.13.0",
     "typescript": "~5.9.2"
   }
 }
