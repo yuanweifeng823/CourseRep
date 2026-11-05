@@ -5,10 +5,12 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/mail"
@@ -420,6 +422,47 @@ func sendVerification(to, code string) error {
 	if user != "" {
 		auth = smtp.PlainAuth("", user, pass, host)
 	}
-	body := []byte("To: " + to + "\r\nSubject: CourseRep 邮箱验证码\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n你的验证码是 " + code + "，10 分钟内有效。若非本人操作，请忽略此邮件。\r\n")
+	subject := mime.QEncoding.Encode("utf-8", "CourseRep 邮箱验证码")
+	body := []byte("To: " + to + "\r\nSubject: " + subject + "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n你的验证码是 " + code + "，10 分钟内有效。若非本人操作，请忽略此邮件。\r\n")
+	// 465/994 与 SMTP_TLS=implicit 使用连接建立即加密（implicit TLS）；
+	// 其余端口沿用 smtp.SendMail 的明文 + STARTTLS 升级。
+	if os.Getenv("SMTP_TLS") == "implicit" || port == "465" || port == "994" {
+		return sendMailImplicitTLS(address, host, auth, from, to, body)
+	}
 	return smtp.SendMail(address, auth, from, []string{to}, body)
+}
+
+func sendMailImplicitTLS(address, host string, auth smtp.Auth, from, to string, body []byte) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 20 * time.Second}, "tcp", address, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	defer client.Close()
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(body); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }

@@ -25,3 +25,6 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# 本地课程数据来源（含抓取脚本与调试文件），不纳入版本库
+courses/
