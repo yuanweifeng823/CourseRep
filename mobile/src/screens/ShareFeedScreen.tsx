@@ -2,20 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { apiBaseUrl, apiFetch } from '../../api';
-import type { Course, CourseFacets, FeedOutput, FeedPost, TopicTagListResponse, UserProfile } from '../api/types';
+import type { CourseFacets, FeedOutput, FeedPost, TopicTagListResponse, UserProfile } from '../api/types';
 import { DepartmentPicker } from '../ui/DepartmentPicker';
 import { colors } from '../ui/theme';
 
 type Props = {
   token: string;
-  onOpenCourse: (course: Course) => void;
+  onOpenPost: (post: FeedPost) => void;
   onCompose: () => void;
 };
 
 const PAGE_SIZE = 10;
 const ALL_DEPARTMENTS = '全部专业';
 
-export function ShareFeedScreen({ token, onOpenCourse, onCompose }: Props) {
+export function ShareFeedScreen({ token, onOpenPost, onCompose }: Props) {
   const [department, setDepartment] = useState<string | null>(null);
   const [tag, setTag] = useState('');
   const [sort, setSort] = useState<'newest' | 'popular'>('newest');
@@ -115,7 +115,7 @@ export function ShareFeedScreen({ token, onOpenCourse, onCompose }: Props) {
         columnWrapperStyle={styles.column}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={header}
-        renderItem={({ item }) => <FeedCard item={item} token={token} onPress={() => onOpenCourse(item.course)} />}
+        renderItem={({ item }) => <FeedCard item={item} token={token} onPress={() => onOpenPost(item)} />}
         onEndReachedThreshold={0.4}
         onEndReached={() => {
           if (feed.hasNextPage && !feed.isFetchingNextPage) void feed.fetchNextPage();

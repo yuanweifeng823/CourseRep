@@ -5,12 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CourseDetail } from './CourseDetail';
 import { AdminScreen, NotificationsScreen, ProfileEditScreen } from './UserScreens';
 import { apiFetch } from './api';
-import type { Course, LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
+import type { Course, FeedPost, LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
 import { CourseCatalog } from './src/screens/CourseCatalog';
 import { ComposePostScreen } from './src/screens/ComposePostScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MeScreen } from './src/screens/MeScreen';
 import { MyListScreen, type EditTarget, type MyListKind } from './src/screens/MyListScreen';
+import { PostDetailScreen } from './src/screens/PostDetailScreen';
 import { ShareFeedScreen } from './src/screens/ShareFeedScreen';
 import { colors } from './src/ui/theme';
 import {
@@ -30,6 +31,7 @@ type Tab = 'home' | 'courses' | 'share' | 'notifications' | 'me';
 
 type Route =
   | { kind: 'course'; course: Course }
+  | { kind: 'post'; post: FeedPost }
   | { kind: 'list'; list: MyListKind }
   | { kind: 'admin' }
   | { kind: 'compose' }
@@ -226,6 +228,15 @@ function AppShell() {
   let body: React.ReactNode;
   if (top?.kind === 'course') {
     body = <CourseDetail course={top.course} token={accessToken} onBack={pop} />;
+  } else if (top?.kind === 'post') {
+    body = (
+      <PostDetailScreen
+        token={accessToken}
+        item={top.post}
+        onBack={pop}
+        onOpenCourse={(course) => push({ kind: 'course', course })}
+      />
+    );
   } else if (top?.kind === 'admin') {
     body = <AdminScreen token={accessToken} role="admin" onBack={pop} />;
   } else if (top?.kind === 'edit') {
@@ -251,7 +262,7 @@ function AppShell() {
     body = (
       <ShareFeedScreen
         token={accessToken}
-        onOpenCourse={(course) => push({ kind: 'course', course })}
+        onOpenPost={(post) => push({ kind: 'post', post })}
         onCompose={() => push({ kind: 'compose' })}
       />
     );

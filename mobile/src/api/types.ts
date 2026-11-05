@@ -42,5 +42,7 @@ export type HomePost = components['schemas']['ContractHomePost'];
 export type ProfileUpdateRequest = components['schemas']['ProfileUpdateInputBody'];
 export type FeedPost = components['schemas']['ContractFeedPost'];
 export type FeedOutput = components['schemas']['ContractFeedOutputBody'];
+export type PostDetailPost = components['schemas']['PostStruct'];
+export type PostDetailResponse = components['schemas']['ContractPostDetailOutputBody'];
 
 type pathsCourseList = operations['listCourses']['responses'][200]['content']['application/json'];
