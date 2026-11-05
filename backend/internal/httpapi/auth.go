@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -96,6 +97,7 @@ func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		if err := sendVerification(req.Email, code); err != nil {
+			log.Printf("send verification email to %s: %v", req.Email, err)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "验证邮件暂时无法发送，请稍后重试"})
 			return
 		}
@@ -130,7 +132,11 @@ func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		var userID int64
-		err = tx.QueryRow(r.Context(), `INSERT INTO users(email,password_hash,nickname,status,email_verified_at) VALUES($1,$2,$3,'verified',now()) RETURNING id`, req.Email, passwordHash, nickname).Scan(&userID)
+		role := "user"
+		if adminEmails()[req.Email] {
+			role = "admin"
+		}
+		err = tx.QueryRow(r.Context(), `INSERT INTO users(email,password_hash,nickname,status,email_verified_at,role) VALUES($1,$2,$3,'verified',now(),$4) RETURNING id`, req.Email, passwordHash, nickname, role).Scan(&userID)
 		if err == nil {
 			_, err = tx.Exec(r.Context(), `UPDATE email_verifications SET consumed_at=now() WHERE email=$1 AND consumed_at IS NULL`, req.Email)
 		}
@@ -465,4 +471,36 @@ func sendMailImplicitTLS(address, host string, auth smtp.Auth, from, to string, 
 		return err
 	}
 	return client.Quit()
+}
+
+// adminEmails 返回通过邮箱自动获得运营权限的账号。
+// 默认包含项目约定的初始管理员账号，可用逗号分隔的 ADMIN_EMAILS 覆盖。
+func adminEmails() map[string]bool {
+	raw := strings.TrimSpace(os.Getenv("ADMIN_EMAILS"))
+	if raw == "" {
+		raw = "weifeyuan2-c@my.cityu.edu.hk"
+	}
+	emails := make(map[string]bool)
+	for _, item := range strings.Split(raw, ",") {
+		email := strings.ToLower(strings.TrimSpace(item))
+		if email != "" {
+			emails[email] = true
+		}
+	}
+	return emails
+}
+
+// syncAdminEmails 把 ADMIN_EMAILS 中已注册的账号提升为管理员。
+// 只提升、不降级，避免改坏运营人员手工授予的权限。
+func syncAdminEmails(ctx context.Context, pool *pgxpool.Pool) error {
+	emails := adminEmails()
+	if len(emails) == 0 {
+		return nil
+	}
+	list := make([]string, 0, len(emails))
+	for email := range emails {
+		list = append(list, email)
+	}
+	_, err := pool.Exec(ctx, `UPDATE users SET role='admin' WHERE lower(email)=ANY($1) AND role<>'admin'`, list)
+	return err
 }

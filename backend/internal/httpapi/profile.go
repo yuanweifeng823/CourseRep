@@ -1,9 +1,12 @@
 package httpapi
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func registerProfileRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
@@ -73,13 +76,47 @@ func registerProfileRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	}
 	mux.Handle("GET /api/v1/users/me", authenticate(pool, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := userFromContext(r.Context())
-		var nickname string
-		if e := pool.QueryRow(r.Context(), `SELECT nickname FROM users WHERE id=$1`, u.ID).Scan(&nickname); e != nil {
+		var nickname, department string
+		if e := pool.QueryRow(r.Context(), `SELECT nickname,department FROM users WHERE id=$1`, u.ID).Scan(&nickname, &department); e != nil {
 			writeJSON(w, 404, map[string]string{"error": "用户不存在"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"id": u.ID, "nickname": nickname, "status": u.Status, "role": u.Role})
+		writeJSON(w, 200, map[string]any{"id": u.ID, "nickname": nickname, "status": u.Status, "role": u.Role, "department": department})
 	})))
+	mux.Handle("PATCH /api/v1/users/me", authenticate(pool, requireVerified(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Department string `json:"department"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req) != nil {
+			writeJSON(w, 400, map[string]string{"error": "请求内容无效"})
+			return
+		}
+		department := strings.TrimSpace(req.Department)
+		if department == "" || len([]rune(department)) > 100 {
+			writeJSON(w, 400, map[string]string{"error": "请选择有效的专业"})
+			return
+		}
+		u := userFromContext(r.Context())
+		var valid bool
+		if err := pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM courses WHERE department=$1)`, department).Scan(&valid); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "无法保存专业"})
+			return
+		}
+		if !valid {
+			writeJSON(w, 400, map[string]string{"error": "请选择有效的专业"})
+			return
+		}
+		var nickname string
+		if _, err := pool.Exec(r.Context(), `UPDATE users SET department=$1 WHERE id=$2`, department, u.ID); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "无法保存专业"})
+			return
+		}
+		if err := pool.QueryRow(r.Context(), `SELECT nickname FROM users WHERE id=$1`, u.ID).Scan(&nickname); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "无法保存专业"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"id": u.ID, "nickname": nickname, "status": u.Status, "role": u.Role, "department": department})
+	}))))
 	mux.Handle("GET /api/v1/users/me/reviews", authenticate(pool, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := userFromContext(r.Context())
 		rows, e := pool.Query(r.Context(), `SELECT r.id,r.status,r.semester,r.grading,r.workload,r.assessment,r.usefulness,r.tags,r.body,r.created_at,c.id,c.course_code,c.course_name FROM course_reviews r JOIN courses c ON c.id=r.course_id WHERE r.author_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 100`, u.ID)

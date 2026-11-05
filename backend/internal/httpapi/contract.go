@@ -224,10 +224,39 @@ type contractNotificationListOutput struct {
 }
 type contractProfileOutput struct {
 	Body struct {
-		ID       int64  `json:"id"`
-		Nickname string `json:"nickname"`
-		Status   string `json:"status"`
-		Role     string `json:"role"`
+		ID         int64  `json:"id"`
+		Nickname   string `json:"nickname"`
+		Status     string `json:"status"`
+		Role       string `json:"role"`
+		Department string `json:"department"`
+	}
+}
+type profileUpdateInput struct {
+	Body struct {
+		Department string `json:"department" minLength:"1" maxLength:"100"`
+	}
+}
+type contractHomePost struct {
+	ID          int64          `json:"id"`
+	CourseID    int64          `json:"course_id"`
+	Title       string         `json:"title"`
+	Body        string         `json:"body"`
+	Year        *int           `json:"attendance_year"`
+	YearLabel   string         `json:"attendance_year_label"`
+	Identity    string         `json:"display_identity"`
+	DisplayName string         `json:"display_name"`
+	LikeCount   int            `json:"like_count"`
+	CommentCnt  int            `json:"comment_count"`
+	ViewCount   int            `json:"view_count"`
+	Created     any            `json:"created_at"`
+	Course      contractCourse `json:"course"`
+}
+type contractHomeOutput struct {
+	Body struct {
+		Department      string             `json:"department"`
+		NeedsDepartment bool               `json:"needs_department"`
+		TopCourses      []contractCourse   `json:"top_courses"`
+		TrendingPosts   []contractHomePost `json:"trending_posts"`
 	}
 }
 type contractMetricsOutput struct {
@@ -671,6 +700,14 @@ func newContractAPI(dispatch ...http.Handler) (http.Handler, *huma.OpenAPI) {
 		return &contractNotificationListOutput{}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "getProfile", Method: http.MethodGet, Path: "/api/v1/users/me", Summary: "读取个人资料", Tags: []string{"个人"}, Security: secured}, func(context.Context, *struct{}) (*contractProfileOutput, error) { return &contractProfileOutput{}, nil })
+	huma.Register(api, huma.Operation{OperationID: "updateProfile", Method: http.MethodPatch, Path: "/api/v1/users/me", Summary: "更新个人资料（选择专业）", Tags: []string{"个人"}, Security: secured}, func(context.Context, *profileUpdateInput) (*contractProfileOutput, error) {
+		return &contractProfileOutput{}, nil
+	})
+	huma.Register(api, huma.Operation{OperationID: "getHome", Method: http.MethodGet, Path: "/api/v1/home", Summary: "按专业读取首页推荐与热门经验帖", Tags: []string{"首页"}, Security: secured}, func(context.Context, *struct {
+		Department string `query:"department" maxLength:"100"`
+	}) (*contractHomeOutput, error) {
+		return &contractHomeOutput{}, nil
+	})
 	huma.Register(api, huma.Operation{OperationID: "createReview", DefaultStatus: http.StatusCreated, Method: http.MethodPost, Path: "/api/v1/courses/{courseID}/reviews", Summary: "提交匿名课程评价", Tags: []string{"评价"}, Security: secured}, func(context.Context, *reviewCreateInput) (*contractIDStatusMessageOutput, error) {
 		return &contractIDStatusMessageOutput{}, nil
 	})

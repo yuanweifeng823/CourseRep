@@ -624,6 +624,118 @@
         ],
         "type": "object"
       },
+      "ContractHomeOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/schemas/ContractHomeOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "needs_department": {
+            "type": "boolean"
+          },
+          "top_courses": {
+            "items": {
+              "$ref": "#/components/schemas/ContractCourse"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "trending_posts": {
+            "items": {
+              "$ref": "#/components/schemas/ContractHomePost"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "department",
+          "needs_department",
+          "top_courses",
+          "trending_posts"
+        ],
+        "type": "object"
+      },
+      "ContractHomePost": {
+        "additionalProperties": false,
+        "properties": {
+          "attendance_year": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "attendance_year_label": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "comment_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "course": {
+            "$ref": "#/components/schemas/ContractCourse"
+          },
+          "course_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {},
+          "display_identity": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "like_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "view_count": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "course_id",
+          "title",
+          "body",
+          "attendance_year",
+          "attendance_year_label",
+          "display_identity",
+          "display_name",
+          "like_count",
+          "comment_count",
+          "view_count",
+          "created_at",
+          "course"
+        ],
+        "type": "object"
+      },
       "ContractIDStatusMessageOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -1569,6 +1681,9 @@
             "readOnly": true,
             "type": "string"
           },
+          "department": {
+            "type": "string"
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -1587,7 +1702,8 @@
           "id",
           "nickname",
           "status",
-          "role"
+          "role",
+          "department"
         ],
         "type": "object"
       },
@@ -2458,6 +2574,29 @@
         "required": [
           "title",
           "body"
+        ],
+        "type": "object"
+      },
+      "ProfileUpdateInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/schemas/ProfileUpdateInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "department": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "department"
         ],
         "type": "object"
       },
@@ -4529,6 +4668,53 @@
         ]
       }
     },
+    "/api/v1/home": {
+      "get": {
+        "operationId": "getHome",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "department",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractHomeOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "按专业读取首页推荐与热门经验帖",
+        "tags": [
+          "首页"
+        ]
+      }
+    },
     "/api/v1/notifications": {
       "get": {
         "operationId": "getNotifications",
@@ -5134,6 +5320,50 @@
           }
         ],
         "summary": "读取个人资料",
+        "tags": [
+          "个人"
+        ]
+      },
+      "patch": {
+        "operationId": "updateProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdateInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractProfileOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新个人资料（选择专业）",
         "tags": [
           "个人"
         ]

@@ -43,3 +43,16 @@ func TestValidTagsRejectsBlankAndDuplicates(t *testing.T) {
 		}
 	}
 }
+
+// 初始管理员账号来自默认值或 ADMIN_EMAILS；验证码验证时据此决定 role。
+func TestAdminEmailsDefaultAndOverride(t *testing.T) {
+	t.Setenv("ADMIN_EMAILS", "")
+	if !adminEmails()["weifeyuan2-c@my.cityu.edu.hk"] {
+		t.Fatal("default admin email should be included")
+	}
+	t.Setenv("ADMIN_EMAILS", " First@Example.com , second@example.com ,,")
+	got := adminEmails()
+	if len(got) != 2 || !got["first@example.com"] || !got["second@example.com"] {
+		t.Fatalf("ADMIN_EMAILS should be trimmed, lowercased and split on commas, got %#v", got)
+	}
+}

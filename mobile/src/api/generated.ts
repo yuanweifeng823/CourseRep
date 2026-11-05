@@ -501,6 +501,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/home": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 按专业读取首页推荐与热门经验帖 */
+        get: operations["getHome"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications": {
         parameters: {
             query?: never;
@@ -672,7 +689,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** 更新个人资料（选择专业） */
+        patch: operations["updateProfile"];
         trace?: never;
     };
     "/api/v1/users/me/bookmarks": {
@@ -970,6 +988,39 @@ export interface components {
             id: number;
             role: string;
             status: string;
+        };
+        ContractHomeOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ContractHomeOutputBody.json
+             */
+            readonly $schema?: string;
+            department: string;
+            needs_department: boolean;
+            top_courses: components["schemas"]["ContractCourse"][] | null;
+            trending_posts: components["schemas"]["ContractHomePost"][] | null;
+        };
+        ContractHomePost: {
+            /** Format: int64 */
+            attendance_year: number | null;
+            attendance_year_label: string;
+            body: string;
+            /** Format: int64 */
+            comment_count: number;
+            course: components["schemas"]["ContractCourse"];
+            /** Format: int64 */
+            course_id: number;
+            created_at: unknown;
+            display_identity: string;
+            display_name: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            like_count: number;
+            title: string;
+            /** Format: int64 */
+            view_count: number;
         };
         ContractIDStatusMessageOutputBody: {
             /**
@@ -1270,6 +1321,7 @@ export interface components {
              * @example https://example.com/schemas/ContractProfileOutputBody.json
              */
             readonly $schema?: string;
+            department: string;
             /** Format: int64 */
             id: number;
             nickname: string;
@@ -1584,6 +1636,15 @@ export interface components {
             image_urls?: string[] | null;
             title: string;
             topic_tags?: string[] | null;
+        };
+        ProfileUpdateInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ProfileUpdateInputBody.json
+             */
+            readonly $schema?: string;
+            department: string;
         };
         RatingsStruct: {
             /** Format: double */
@@ -2786,6 +2847,37 @@ export interface operations {
             };
         };
     };
+    getHome: {
+        parameters: {
+            query?: {
+                department?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractHomeOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     getNotifications: {
         parameters: {
             query?: never;
@@ -3195,6 +3287,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractProfileOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdateInputBody"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {

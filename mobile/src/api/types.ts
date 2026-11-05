@@ -37,5 +37,8 @@ export type PendingPost = components['schemas']['ContractPendingPostItem'];
 export type LoginResponse = operations['login']['responses'][200]['content']['application/json'];
 export type LoginRequest = operations['login']['requestBody']['content']['application/json'];
 export type RegisterRequest = operations['register']['requestBody']['content']['application/json'];
+export type HomeOutput = components['schemas']['ContractHomeOutputBody'];
+export type HomePost = components['schemas']['ContractHomePost'];
+export type ProfileUpdateRequest = components['schemas']['ProfileUpdateInputBody'];
 
 type pathsCourseList = operations['listCourses']['responses'][200]['content']['application/json'];

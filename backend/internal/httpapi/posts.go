@@ -294,6 +294,8 @@ func registerPostRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		if x.Year != nil {
 			label = strconv.Itoa(*x.Year)
 		}
+		// 浏览记录只用于首页热门排序，写入失败不应影响读取详情。
+		_, _ = pool.Exec(r.Context(), `INSERT INTO post_view_events(post_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, id, userFromContext(r.Context()).ID)
 		writeJSON(w, 200, map[string]any{"post": map[string]any{"id": x.ID, "course_id": x.CourseID, "title": x.Title, "body": x.Body, "image_urls": x.Images, "topic_tags": x.Tags, "attendance_year": x.Year, "attendance_year_label": label, "display_identity": x.Identity, "display_name": x.Name, "created_at": x.Created}})
 	}))))
 	mux.Handle("POST /api/v1/admin/posts/{postID}/decision", authenticate(pool, requireModerator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,6 +21,9 @@ func New(pool *pgxpool.Pool) http.Handler {
 	})
 	legacyMux := http.NewServeMux()
 	if pool != nil {
+		if err := syncAdminEmails(context.Background(), pool); err != nil {
+			log.Printf("sync admin emails: %v", err)
+		}
 		registerRoutes(legacyMux, pool)
 		registerReviewRoutes(legacyMux, pool)
 		registerPostRoutes(legacyMux, pool)
@@ -26,6 +31,7 @@ func New(pool *pgxpool.Pool) http.Handler {
 		registerCourseImportRoutes(legacyMux, pool)
 		registerModerationRoutes(legacyMux, pool)
 		registerProfileRoutes(legacyMux, pool)
+		registerHomeRoutes(legacyMux, pool)
 		registerCourseCorrectionRoutes(legacyMux, pool)
 		registerCommunitySettingsRoutes(legacyMux, pool)
 	} else {
