@@ -20,6 +20,7 @@
 - 权限矩阵 78 项：未登录访问业务路由 401；普通用户访问运营路由 403；普通用户浏览与个人路由 200；管理员队列与指标 200。唯一差异：`POST /api/v1/auth/logout` 无令牌也返回 204（只按传入的 `refresh_token` 撤销，幂等设计，OpenAPI 未声明 security）。
 - 匿名与隐私：匿名经验帖在详情、列表、评论、通知中均不返回 `author`/`owner`/`email`/`user_id` 字段，展示名固定“同校已验证”；匿名评价公开列表同样无作者字段；运营待审队列（帖子/评价/举报/纠错）不含作者关联字段。
 - 契约：`/openapi.json` 为 OpenAPI 3.1.0，44 path / 52 operation 与注册路由一一对应；抽样 GET 响应与 schema 对照无字段漂移；请求 schema 的必填项与运行时一致（`image_urls`、`topic_tags`、`tags`、`display_identity` 均可省略）。
+- 健壮性与限流：畸形 JSON、数组请求体、错误 Content-Type 均 400；`GET /auth/login` 405；分页与搜索边界（`page=0`、`page_size=101`、超长 `q`、非数字页码）400；`/posts/abc`、`/posts/-1` 400；不存在的课程返回空帖子列表；`/uploads/{name}` 路径穿越与随机名均 404；向他人通知写已读 404；篡改或伪造访问令牌 401；未审核与已下架的帖子不可点赞/评论；登录连续失利在每分钟第 11 次返回 429，且不影响已签发的 access token。
 
 ## 本轮修复
 
@@ -51,6 +52,7 @@
 - 真机/模拟器联调与页面走查：需要 Expo Go 或 Android 构建环境。
 - 真实城大课程表导入：需要正式数据源。
 - 多实例部署的共享限流：当前为单进程内存按 IP 窗口。
+- 未知 JSON 字段被静默忽略：请求体拼错字段名（如用 `tags` 代替 `topic_tags`）仍返回 2xx，字段则不生效；如需严格校验需改用 `DisallowUnknownFields`，属行为变更，待确认后再做。
 - Huma 类型化业务 handler 迁移：契约已生成，运行时校验仍在 `net/http` handler。
 
 ## 产品待确认
