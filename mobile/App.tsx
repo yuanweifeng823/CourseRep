@@ -31,7 +31,7 @@ type Tab = 'home' | 'courses' | 'share' | 'notifications' | 'me';
 
 type Route =
   | { kind: 'course'; course: Course }
-  | { kind: 'post'; post: FeedPost }
+  | { kind: 'post'; postId: number; course: Course; seed?: Partial<FeedPost> }
   | { kind: 'list'; list: MyListKind }
   | { kind: 'admin' }
   | { kind: 'compose' }
@@ -232,7 +232,9 @@ function AppShell() {
     body = (
       <PostDetailScreen
         token={accessToken}
-        item={top.post}
+        postId={top.postId}
+        course={top.course}
+        seed={top.seed}
         onBack={pop}
         onOpenCourse={(course) => push({ kind: 'course', course })}
       />
@@ -262,7 +264,7 @@ function AppShell() {
     body = (
       <ShareFeedScreen
         token={accessToken}
-        onOpenPost={(post) => push({ kind: 'post', post })}
+        onOpenPost={(post) => push({ kind: 'post', postId: post.id, course: post.course, seed: post })}
         onCompose={() => push({ kind: 'compose' })}
       />
     );
@@ -278,7 +280,30 @@ function AppShell() {
       />
     );
   } else {
-    body = <HomeScreen token={accessToken} onOpenCourse={(course) => push({ kind: 'course', course })} />;
+    body = (
+      <HomeScreen
+        token={accessToken}
+        onOpenCourse={(course) => push({ kind: 'course', course })}
+        onOpenPost={(post) =>
+          push({
+            kind: 'post',
+            postId: post.id,
+            course: post.course,
+            seed: {
+              title: post.title,
+              body: post.body,
+              attendance_year: post.attendance_year,
+              attendance_year_label: post.attendance_year_label,
+              display_identity: post.display_identity,
+              display_name: post.display_name,
+              created_at: post.created_at,
+              like_count: post.like_count,
+              comment_count: post.comment_count,
+            },
+          })
+        }
+      />
+    );
   }
 
   return (

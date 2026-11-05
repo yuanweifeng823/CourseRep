@@ -9,9 +9,10 @@ import { colors } from '../ui/theme';
 type Props = {
   token: string;
   onOpenCourse: (course: Course) => void;
+  onOpenPost: (post: HomePost) => void;
 };
 
-export function HomeScreen({ token, onOpenCourse }: Props) {
+export function HomeScreen({ token, onOpenCourse, onOpenPost }: Props) {
   const queryClient = useQueryClient();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -114,7 +115,7 @@ export function HomeScreen({ token, onOpenCourse }: Props) {
               </View>
             ) : (
               posts.map((post) => (
-                <PostCard key={post.id} post={post} onPress={() => onOpenCourse(post.course)} />
+                <PostCard key={post.id} post={post} onPress={() => onOpenPost(post)} />
               ))
             )}
 

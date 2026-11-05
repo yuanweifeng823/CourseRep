@@ -19,57 +19,59 @@ import { colors } from '../ui/theme';
 
 type Props = {
   token: string;
-  item: FeedPost;
+  postId: number;
+  course: Course;
+  seed?: Partial<FeedPost>;
   onBack: () => void;
   onOpenCourse: (course: Course) => void;
 };
 
-export function PostDetailScreen({ token, item, onBack, onOpenCourse }: Props) {
+export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCourse }: Props) {
   const queryClient = useQueryClient();
-  const [liked, setLiked] = useState(item.liked_by_me);
-  const [likeCount, setLikeCount] = useState(item.like_count);
-  const [bookmarked, setBookmarked] = useState(item.bookmarked_by_me);
-  const [commentCount, setCommentCount] = useState(item.comment_count);
+  const [liked, setLiked] = useState(seed?.liked_by_me ?? false);
+  const [likeCount, setLikeCount] = useState(seed?.like_count ?? 0);
+  const [bookmarked, setBookmarked] = useState(seed?.bookmarked_by_me ?? false);
+  const [commentCount, setCommentCount] = useState(seed?.comment_count ?? 0);
   const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
 
   const detail = useQuery({
-    queryKey: ['post-detail', item.id],
+    queryKey: ['post-detail', postId],
     queryFn: async () => {
-      const response = await apiFetch(`/api/v1/posts/${item.id}`, token);
+      const response = await apiFetch(`/api/v1/posts/${postId}`, token);
       if (!response.ok) throw new Error('经验帖暂时无法查看');
       return (await response.json()) as PostDetailResponse;
     },
   });
 
   const comments = useQuery({
-    queryKey: ['post-comments', item.id],
+    queryKey: ['post-comments', postId],
     queryFn: async () => {
-      const response = await apiFetch(`/api/v1/posts/${item.id}/comments`, token);
+      const response = await apiFetch(`/api/v1/posts/${postId}/comments`, token);
       if (!response.ok) throw new Error('评论暂时无法加载');
       return (await response.json()) as CommentListResponse;
     },
   });
 
   const post: PostDetailPost = detail.data?.post ?? {
-    id: item.id,
-    course_id: item.course_id,
-    title: item.title,
-    body: item.body,
-    image_urls: item.image_urls,
-    topic_tags: item.topic_tags,
-    attendance_year: item.attendance_year,
-    attendance_year_label: item.attendance_year_label,
-    display_identity: item.display_identity,
-    display_name: item.display_name,
-    created_at: String(item.created_at),
+    id: postId,
+    course_id: course.id,
+    title: seed?.title ?? '',
+    body: seed?.body ?? '',
+    image_urls: seed?.image_urls ?? [],
+    topic_tags: seed?.topic_tags ?? [],
+    attendance_year: seed?.attendance_year ?? null,
+    attendance_year_label: seed?.attendance_year_label ?? '年份未注明',
+    display_identity: seed?.display_identity ?? 'anonymous',
+    display_name: seed?.display_name ?? '同校已验证',
+    created_at: String(seed?.created_at ?? ''),
   };
 
   const toggleLike = async () => {
     const next = !liked;
     setLiked(next);
     setLikeCount((value) => Math.max(0, value + (next ? 1 : -1)));
-    const response = await apiFetch(`/api/v1/posts/${item.id}/like`, token, { method: next ? 'PUT' : 'DELETE' });
+    const response = await apiFetch(`/api/v1/posts/${postId}/like`, token, { method: next ? 'PUT' : 'DELETE' });
     if (!response.ok) {
       setLiked(!next);
       setLikeCount((value) => Math.max(0, value + (next ? -1 : 1)));
@@ -80,7 +82,7 @@ export function PostDetailScreen({ token, item, onBack, onOpenCourse }: Props) {
   const toggleBookmark = async () => {
     const next = !bookmarked;
     setBookmarked(next);
-    const response = await apiFetch(`/api/v1/posts/${item.id}/bookmark`, token, { method: next ? 'PUT' : 'DELETE' });
+    const response = await apiFetch(`/api/v1/posts/${postId}/bookmark`, token, { method: next ? 'PUT' : 'DELETE' });
     if (!response.ok) {
       setBookmarked(!next);
       Alert.alert('操作失败', '请稍后再试');
@@ -92,7 +94,7 @@ export function PostDetailScreen({ token, item, onBack, onOpenCourse }: Props) {
     if (!body) return;
     setSending(true);
     try {
-      const response = await apiFetch(`/api/v1/posts/${item.id}/comments`, token, {
+      const response = await apiFetch(`/api/v1/posts/${postId}/comments`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body }),
@@ -101,7 +103,7 @@ export function PostDetailScreen({ token, item, onBack, onOpenCourse }: Props) {
       if (!response.ok) throw new Error(data.error || '评论失败');
       setComment('');
       setCommentCount((value) => value + 1);
-      await queryClient.invalidateQueries({ queryKey: ['post-comments', item.id] });
+      await queryClient.invalidateQueries({ queryKey: ['post-comments', postId] });
       await queryClient.invalidateQueries({ queryKey: ['feed'] });
     } catch (error) {
       Alert.alert('无法评论', error instanceof Error ? error.message : '请稍后再试');
@@ -149,15 +151,15 @@ export function PostDetailScreen({ token, item, onBack, onOpenCourse }: Props) {
           </View>
         )}
 
-        <TouchableOpacity style={styles.courseCard} onPress={() => onOpenCourse(item.course)} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.courseCard} onPress={() => onOpenCourse(course)} activeOpacity={0.85}>
           <View style={{ flex: 1 }}>
             <Text style={styles.courseLabel}>关联课程</Text>
-            <Text style={styles.courseCode}>{item.course.course_code}</Text>
+            <Text style={styles.courseCode}>{course.course_code}</Text>
             <Text style={styles.courseName} numberOfLines={1}>
-              {item.course.course_name}
+              {course.course_name}
             </Text>
             <Text style={styles.courseMeta}>
-              {item.course.department} · {item.course.semester}
+              {course.department} · {course.semester}
             </Text>
           </View>
           <Text style={styles.courseChevron}>›</Text>
