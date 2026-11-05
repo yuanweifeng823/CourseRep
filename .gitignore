@@ -1,0 +1,27 @@
+# Local secrets and environment configuration
+.env
+.env.*
+!.env.example
+
+# JavaScript dependencies and Expo state
+node_modules/
+.expo/
+npm-debug.log*
+
+# Generated mobile builds and signing material
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/app/debug.keystore
+mobile/ios/Pods/
+
+# Local packages and large build artifacts
+dist/
+*.apk
+*.aab
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
