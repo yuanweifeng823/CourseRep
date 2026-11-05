@@ -7,7 +7,7 @@
 - 本机 PostgreSQL 16（Docker Compose，宿主机 5433）+ 空库从零迁移至 version 9；服务以 `HTTP_ADDR=:18080` 运行（8080 落在 Windows 排除端口段内）。
 - 本地 SMTP sink（127.0.0.1:1025）接收验证邮件并落盘；真实外部 SMTP 投递未验证。
 - 验收脚本放在临时目录、不入库：认证、课程导入（CSV/XLSX）、评价、经验帖、评论/点赞/收藏/通知、举报与运营决定、权限矩阵、OpenAPI 一致性。
-- 实际执行：`go build ./...`、`go vet ./...`、`go test ./...`、移动端 `npx tsc --noEmit`、`scripts/migrate.ps1 up|status` 幂等重跑。
+- 实际执行：`go build ./...`、`go vet ./...`、`go test ./...`（含 `nonNilStrings`、评分边界、标签去重的回归测试）、移动端 `npx tsc --noEmit`、`scripts/migrate.ps1 up|status` 幂等重跑。
 
 ## 已通过的端到端项
 
@@ -18,6 +18,7 @@
 - 经验帖：图片上传（仅 JPEG/PNG、重编码去 EXIF、返回遮挡提示）、标题/正文/年份/署名/图片数量校验、未审核不公开、发布后按年份（含“年份未注明”）、话题、最新/热度筛选、匿名显示“同校已验证”、一层评论、点赞/收藏幂等且撤销 204、编辑重审、他人编辑 404。
 - 举报与运营：类别与目标校验、待审队列匿名遮罩、驳回/下架内容/停用作者三类决定、下架后内容 404、停用后登录与刷新均 401、举报人收到结果通知、运营指标仅运营可见。
 - 权限矩阵 78 项：未登录访问业务路由 401；普通用户访问运营路由 403；普通用户浏览与个人路由 200；管理员队列与指标 200。唯一差异：`POST /api/v1/auth/logout` 无令牌也返回 204（只按传入的 `refresh_token` 撤销，幂等设计，OpenAPI 未声明 security）。
+- 匿名与隐私：匿名经验帖在详情、列表、评论、通知中均不返回 `author`/`owner`/`email`/`user_id` 字段，展示名固定“同校已验证”；匿名评价公开列表同样无作者字段；运营待审队列（帖子/评价/举报/纠错）不含作者关联字段。
 - 契约：`/openapi.json` 为 OpenAPI 3.1.0，44 path / 52 operation 与注册路由一一对应；抽样 GET 响应与 schema 对照无字段漂移；请求 schema 的必填项与运行时一致（`image_urls`、`topic_tags`、`tags`、`display_identity` 均可省略）。
 
 ## 本轮修复
