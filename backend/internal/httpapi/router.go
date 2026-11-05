@@ -17,7 +17,25 @@ func New(pool *pgxpool.Pool) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("GET /api/v1/courses", func(w http.ResponseWriter, r *http.Request) {
+	legacyMux := http.NewServeMux()
+	if pool != nil {
+		registerRoutes(legacyMux, pool)
+		registerReviewRoutes(legacyMux, pool)
+		registerPostRoutes(legacyMux, pool)
+		registerImageRoutes(legacyMux, pool)
+		registerCourseImportRoutes(legacyMux, pool)
+		registerModerationRoutes(legacyMux, pool)
+		registerProfileRoutes(legacyMux, pool)
+		registerCourseCorrectionRoutes(legacyMux, pool)
+		registerCommunitySettingsRoutes(legacyMux, pool)
+	} else {
+		unavailable := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "服务暂不可用"})
+		})
+		legacyMux.Handle("/api/v1/", unavailable)
+		legacyMux.Handle("/uploads/", unavailable)
+	}
+	courseList := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if pool == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "课程目录服务暂不可用"})
 			return
@@ -37,32 +55,55 @@ func New(pool *pgxpool.Pool) http.Handler {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "搜索内容最多 100 个字符"})
 			return
 		}
+		department, semester := strings.TrimSpace(r.URL.Query().Get("department")), strings.TrimSpace(r.URL.Query().Get("semester"))
+		if len([]rune(department)) > 100 || len([]rune(semester)) > 100 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "筛选内容最多 100 个字符"})
+			return
+		}
+		sortBy := r.URL.Query().Get("sort")
+		if sortBy == "" {
+			sortBy = "course"
+		}
+		if sortBy != "course" && sortBy != "rating" && sortBy != "reviews" && sortBy != "posts" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "排序方式无效"})
+			return
+		}
 		offset := (page - 1) * pageSize
 		rows, err := pool.Query(r.Context(), `
-			SELECT id, course_code, course_name, professor, semester, department, credits
-			FROM courses
-			WHERE $1 = '' OR course_code ILIKE '%' || $1 || '%' OR course_name ILIKE '%' || $1 || '%'
-				OR professor ILIKE '%' || $1 || '%' OR department ILIKE '%' || $1 || '%'
-			ORDER BY course_code, semester, id
-			LIMIT $2 OFFSET $3`, query, pageSize, offset)
+			SELECT c.id,c.course_code,c.course_name,c.professor,c.semester,c.department,c.credits,
+			       COALESCE(rv.rating,0)::float8,COALESCE(rv.review_count,0)::int,COALESCE(pp.post_count,0)::int
+			FROM courses c
+			LEFT JOIN (SELECT course_id,AVG((grading+workload+assessment+usefulness)/4.0) rating,COUNT(*) review_count FROM course_reviews WHERE status='published' GROUP BY course_id) rv ON rv.course_id=c.id
+			LEFT JOIN (SELECT course_id,COUNT(*) post_count FROM course_posts WHERE status='published' GROUP BY course_id) pp ON pp.course_id=c.id
+			WHERE ($1='' OR c.course_code ILIKE '%' || $1 || '%' OR c.course_name ILIKE '%' || $1 || '%'
+				OR c.professor ILIKE '%' || $1 || '%' OR c.department ILIKE '%' || $1 || '%')
+			  AND ($2='' OR c.department=$2) AND ($3='' OR c.semester=$3)
+			ORDER BY CASE WHEN $4='rating' THEN rv.rating END DESC NULLS LAST,
+			         CASE WHEN $4='reviews' THEN rv.review_count END DESC NULLS LAST,
+			         CASE WHEN $4='posts' THEN pp.post_count END DESC NULLS LAST,
+			         c.course_code,c.semester,c.id
+			LIMIT $5 OFFSET $6`, query, department, semester, sortBy, pageSize, offset)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取课程目录失败"})
 			return
 		}
 		defer rows.Close()
 		type course struct {
-			ID         int64   `json:"id"`
-			CourseCode string  `json:"course_code"`
-			CourseName string  `json:"course_name"`
-			Professor  string  `json:"professor"`
-			Semester   string  `json:"semester"`
-			Department string  `json:"department"`
-			Credits    float64 `json:"credits"`
+			ID          int64   `json:"id"`
+			CourseCode  string  `json:"course_code"`
+			CourseName  string  `json:"course_name"`
+			Professor   string  `json:"professor"`
+			Semester    string  `json:"semester"`
+			Department  string  `json:"department"`
+			Credits     float64 `json:"credits"`
+			Rating      float64 `json:"rating"`
+			ReviewCount int     `json:"review_count"`
+			PostCount   int     `json:"post_count"`
 		}
 		items := make([]course, 0)
 		for rows.Next() {
 			var item course
-			if err := rows.Scan(&item.ID, &item.CourseCode, &item.CourseName, &item.Professor, &item.Semester, &item.Department, &item.Credits); err != nil {
+			if err := rows.Scan(&item.ID, &item.CourseCode, &item.CourseName, &item.Professor, &item.Semester, &item.Department, &item.Credits, &item.Rating, &item.ReviewCount, &item.PostCount); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取课程目录失败"})
 				return
 			}
@@ -78,6 +119,43 @@ func New(pool *pgxpool.Pool) http.Handler {
 			PageSize int      `json:"page_size"`
 		}{Items: items, Page: page, PageSize: pageSize})
 	})
+	if pool != nil {
+		legacyMux.Handle("GET /api/v1/courses", authenticate(pool, canBrowse(courseList)))
+		legacyMux.Handle("GET /api/v1/course-facets", authenticate(pool, canBrowse(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rows, err := pool.Query(r.Context(), `SELECT department,semester FROM courses ORDER BY department,semester`)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "读取筛选项失败"})
+				return
+			}
+			defer rows.Close()
+			departments, semesters := []string{}, []string{}
+			departmentSet, semesterSet := map[string]bool{}, map[string]bool{}
+			for rows.Next() {
+				var d, s string
+				if rows.Scan(&d, &s) != nil {
+					writeJSON(w, 500, map[string]string{"error": "读取筛选项失败"})
+					return
+				}
+				if !departmentSet[d] {
+					departments = append(departments, d)
+					departmentSet[d] = true
+				}
+				if !semesterSet[s] {
+					semesters = append(semesters, s)
+					semesterSet[s] = true
+				}
+			}
+			if rows.Err() != nil {
+				writeJSON(w, 500, map[string]string{"error": "读取筛选项失败"})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"departments": departments, "semesters": semesters})
+		}))))
+	} else {
+		legacyMux.Handle("GET /api/v1/courses", courseList)
+	}
+	contractMux, _ := newContractAPI(legacyMux)
+	mux.Handle("/", contractMux)
 	return mux
 }
 
