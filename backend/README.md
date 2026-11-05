@@ -4,7 +4,8 @@
 
 ```powershell
 docker compose up -d postgres
-$env:DATABASE_URL = "postgres://courserep:courserep-local@localhost:5432/courserep?sslmode=disable"
+$env:DATABASE_URL = "postgres://courserep:courserep-local@localhost:5433/courserep?sslmode=disable"
+./backend/scripts/migrate.ps1 up
 go run ./cmd/courserep
 ```
 
@@ -16,4 +17,4 @@ go run ./cmd/courserep
 docker compose up -d postgres
 ```
 
-课程表结构位于 `migrations/00001_courses.sql`。自动迁移命令尚未接入；启动 API 前需先在本地数据库应用迁移。Compose 中的凭据仅供本地开发使用，不得用于部署环境。
+迁移使用项目脚本调用固定版本的 goose CLI，不需要全局安装：`./backend/scripts/migrate.ps1 up` 应用迁移，`./backend/scripts/migrate.ps1 status` 查看状态。脚本从 `DATABASE_URL` 读取连接串，迁移文件位于 `migrations/`。`backend/.env.example` 只提供本机 Compose 用法示例；部署环境必须从受控密钥配置注入连接串，不能复用示例凭据。

@@ -18,4 +18,4 @@ npm start
 
 可在 Expo Go 或 iOS/Android 模拟器中预览。课程目录目前没有接入后端数据；首版暂不预置课程，因此界面会明确显示空状态。
 
-`backend/` 与根目录 `compose.yaml` 包含后端启动基础和本地 PostgreSQL 配置，尚未接通移动端 API。
+`backend/` 与根目录 `compose.yaml` 包含 PostgreSQL 课程目录 API 和本地数据库配置。后端迁移与运行步骤见 [后端说明](backend/README.md)。移动端当前接入课程目录 API。
