@@ -40,5 +40,7 @@ export type RegisterRequest = operations['register']['requestBody']['content']['
 export type HomeOutput = components['schemas']['ContractHomeOutputBody'];
 export type HomePost = components['schemas']['ContractHomePost'];
 export type ProfileUpdateRequest = components['schemas']['ProfileUpdateInputBody'];
+export type FeedPost = components['schemas']['ContractFeedPost'];
+export type FeedOutput = components['schemas']['ContractFeedOutputBody'];
 
 type pathsCourseList = operations['listCourses']['responses'][200]['content']['application/json'];

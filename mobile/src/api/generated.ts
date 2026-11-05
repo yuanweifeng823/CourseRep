@@ -552,6 +552,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 按专业、话题与年份浏览经验帖 */
+        get: operations["listFeedPosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/posts/{postID}": {
         parameters: {
             query?: never;
@@ -988,6 +1005,45 @@ export interface components {
             id: number;
             role: string;
             status: string;
+        };
+        ContractFeedOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ContractFeedOutputBody.json
+             */
+            readonly $schema?: string;
+            has_more: boolean;
+            items: components["schemas"]["ContractFeedPost"][] | null;
+            /** Format: int64 */
+            page: number;
+            /** Format: int64 */
+            page_size: number;
+        };
+        ContractFeedPost: {
+            /** Format: int64 */
+            attendance_year: number | null;
+            attendance_year_label: string;
+            body: string;
+            bookmarked_by_me: boolean;
+            /** Format: int64 */
+            comment_count: number;
+            course: components["schemas"]["ContractCourse"];
+            /** Format: int64 */
+            course_id: number;
+            created_at: unknown;
+            display_identity: string;
+            display_name: string;
+            /** Format: int64 */
+            id: number;
+            image_urls: string[] | null;
+            /** Format: int64 */
+            like_count: number;
+            liked_by_me: boolean;
+            title: string;
+            topic_tags: string[] | null;
+            /** Format: int64 */
+            view_count: number;
         };
         ContractHomeOutputBody: {
             /**
@@ -2924,6 +2980,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listFeedPosts: {
+        parameters: {
+            query?: {
+                department?: string;
+                tag?: string;
+                /** @description 年份筛选，可传具体年份或 unspecified */
+                year?: string;
+                sort?: "newest" | "popular";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractFeedOutputBody"];
+                };
             };
             /** @description Error */
             default: {

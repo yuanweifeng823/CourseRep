@@ -32,6 +32,7 @@ func New(pool *pgxpool.Pool) http.Handler {
 		registerModerationRoutes(legacyMux, pool)
 		registerProfileRoutes(legacyMux, pool)
 		registerHomeRoutes(legacyMux, pool)
+		registerFeedRoutes(legacyMux, pool)
 		registerCourseCorrectionRoutes(legacyMux, pool)
 		registerCommunitySettingsRoutes(legacyMux, pool)
 	} else {

@@ -7,9 +7,11 @@ import { AdminScreen, NotificationsScreen, ProfileEditScreen } from './UserScree
 import { apiFetch } from './api';
 import type { Course, LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
 import { CourseCatalog } from './src/screens/CourseCatalog';
+import { ComposePostScreen } from './src/screens/ComposePostScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MeScreen } from './src/screens/MeScreen';
 import { MyListScreen, type EditTarget, type MyListKind } from './src/screens/MyListScreen';
+import { ShareFeedScreen } from './src/screens/ShareFeedScreen';
 import { colors } from './src/ui/theme';
 import {
   ActivityIndicator,
@@ -30,6 +32,7 @@ type Route =
   | { kind: 'course'; course: Course }
   | { kind: 'list'; list: MyListKind }
   | { kind: 'admin' }
+  | { kind: 'compose' }
   | { kind: 'edit'; edit: EditTarget };
 
 const tabs: { key: Tab; icon: string; label: string }[] = [
@@ -240,17 +243,17 @@ function AppShell() {
     );
   } else if (top?.kind === 'list') {
     body = <MyListScreen token={accessToken} kind={top.list} onBack={pop} onEdit={(edit) => push({ kind: 'edit', edit })} />;
+  } else if (top?.kind === 'compose') {
+    body = <ComposePostScreen token={accessToken} onClose={pop} onPublished={pop} />;
   } else if (tab === 'courses') {
     body = <CourseCatalog token={accessToken} onOpenCourse={(course) => push({ kind: 'course', course })} />;
   } else if (tab === 'share') {
     body = (
-      <ScrollView contentContainerStyle={styles.placeholder}>
-        <Text style={styles.placeholderTitle}>先选择课程</Text>
-        <Text style={styles.placeholderBody}>经验帖必须关联课程。打开课程详情后，可以发布修课经验。</Text>
-        <TouchableOpacity style={styles.primary} onPress={() => setTab('courses')}>
-          <Text style={styles.primaryText}>去课程页</Text>
-        </TouchableOpacity>
-      </ScrollView>
+      <ShareFeedScreen
+        token={accessToken}
+        onOpenCourse={(course) => push({ kind: 'course', course })}
+        onCompose={() => push({ kind: 'compose' })}
+      />
     );
   } else if (tab === 'notifications') {
     body = <NotificationsScreen token={accessToken} onBack={() => setTab('home')} />;

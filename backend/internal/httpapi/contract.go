@@ -259,6 +259,33 @@ type contractHomeOutput struct {
 		TrendingPosts   []contractHomePost `json:"trending_posts"`
 	}
 }
+type contractFeedPost struct {
+	ID          int64          `json:"id"`
+	CourseID    int64          `json:"course_id"`
+	Title       string         `json:"title"`
+	Body        string         `json:"body"`
+	ImageURLs   []string       `json:"image_urls"`
+	TopicTags   []string       `json:"topic_tags"`
+	Year        *int           `json:"attendance_year"`
+	YearLabel   string         `json:"attendance_year_label"`
+	Identity    string         `json:"display_identity"`
+	DisplayName string         `json:"display_name"`
+	LikeCount   int            `json:"like_count"`
+	CommentCnt  int            `json:"comment_count"`
+	ViewCount   int            `json:"view_count"`
+	LikedByMe   bool           `json:"liked_by_me"`
+	Bookmarked  bool           `json:"bookmarked_by_me"`
+	Created     any            `json:"created_at"`
+	Course      contractCourse `json:"course"`
+}
+type contractFeedOutput struct {
+	Body struct {
+		Items    []contractFeedPost `json:"items"`
+		Page     int                `json:"page"`
+		PageSize int                `json:"page_size"`
+		HasMore  bool               `json:"has_more"`
+	}
+}
 type contractMetricsOutput struct {
 	Body struct {
 		ValidReviews             int     `json:"valid_reviews"`
@@ -707,6 +734,16 @@ func newContractAPI(dispatch ...http.Handler) (http.Handler, *huma.OpenAPI) {
 		Department string `query:"department" maxLength:"100"`
 	}) (*contractHomeOutput, error) {
 		return &contractHomeOutput{}, nil
+	})
+	huma.Register(api, huma.Operation{OperationID: "listFeedPosts", Method: http.MethodGet, Path: "/api/v1/posts", Summary: "按专业、话题与年份浏览经验帖", Tags: []string{"经验帖"}, Security: secured}, func(context.Context, *struct {
+		Department string `query:"department" maxLength:"100"`
+		Tag        string `query:"tag" maxLength:"40"`
+		Year       string `query:"year" doc:"年份筛选，可传具体年份或 unspecified"`
+		Sort       string `query:"sort" enum:"newest,popular"`
+		Page       int    `query:"page" minimum:"1" default:"1"`
+		PageSize   int    `query:"page_size" minimum:"1" maximum:"100" default:"20"`
+	}) (*contractFeedOutput, error) {
+		return &contractFeedOutput{}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "createReview", DefaultStatus: http.StatusCreated, Method: http.MethodPost, Path: "/api/v1/courses/{courseID}/reviews", Summary: "提交匿名课程评价", Tags: []string{"评价"}, Security: secured}, func(context.Context, *reviewCreateInput) (*contractIDStatusMessageOutput, error) {
 		return &contractIDStatusMessageOutput{}, nil
