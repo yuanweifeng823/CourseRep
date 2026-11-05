@@ -113,7 +113,7 @@ func registerCourseCorrectionRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			_, e = tx.Exec(r.Context(), `UPDATE course_corrections SET status=$1,reviewed_by=$2,reviewed_at=now(),resolution=$3 WHERE id=$4`, status, u.ID, strings.TrimSpace(in.Reason), id)
 		}
 		if e == nil {
-			_, e = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'course_correction_result',jsonb_build_object('correction_id',$2,'status',$3))`, owner, id, status)
+			_, e = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'course_correction_result',jsonb_build_object('correction_id',$2::bigint,'status',$3::text))`, owner, id, status)
 		}
 		if e != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "纠错审核事务失败"})

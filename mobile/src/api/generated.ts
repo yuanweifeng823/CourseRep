@@ -945,9 +945,7 @@ export interface components {
              */
             readonly $schema?: string;
             course: components["schemas"]["CourseStruct"];
-            ratings: {
-                [key: string]: number;
-            };
+            ratings: components["schemas"]["RatingsStruct"];
             /** Format: int64 */
             review_count: number;
         };
@@ -1066,10 +1064,14 @@ export interface components {
             readonly $schema?: string;
             /** Format: int64 */
             active_course_viewers_30d: number;
+            active_user_definition: string;
             /** Format: int64 */
             open_teacher_complaints_30d: number;
+            report_rate_definition: string;
             /** Format: double */
             report_rate_percent: number;
+            /** Format: int64 */
+            reports_30d: number;
             /** Format: int64 */
             valid_posts: number;
             /** Format: int64 */
@@ -1519,14 +1521,20 @@ export interface components {
              * @example https://example.com/schemas/PostCreateInputBody.json
              */
             readonly $schema?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 实际修读年份，不得晚于当前年份；留空表示年份未注明
+             */
             attendance_year?: number | null;
             body: string;
-            /** @enum {string} */
-            display_identity: "named" | "anonymous";
-            image_urls: string[] | null;
+            /**
+             * @description 留空按署名展示
+             * @enum {string}
+             */
+            display_identity?: "named" | "anonymous";
+            image_urls?: string[] | null;
             title: string;
-            topic_tags: string[] | null;
+            topic_tags?: string[] | null;
         };
         PostDecisionInputBody: {
             /**
@@ -1562,14 +1570,30 @@ export interface components {
              * @example https://example.com/schemas/PostUpdateInputBody.json
              */
             readonly $schema?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 实际修读年份，不得晚于当前年份；留空表示年份未注明
+             */
             attendance_year?: number | null;
             body: string;
-            /** @enum {string} */
-            display_identity: "named" | "anonymous";
-            image_urls: string[] | null;
+            /**
+             * @description 留空按署名展示
+             * @enum {string}
+             */
+            display_identity?: "named" | "anonymous";
+            image_urls?: string[] | null;
             title: string;
-            topic_tags: string[] | null;
+            topic_tags?: string[] | null;
+        };
+        RatingsStruct: {
+            /** Format: double */
+            assessment: number;
+            /** Format: double */
+            grading: number;
+            /** Format: double */
+            usefulness: number;
+            /** Format: double */
+            workload: number;
         };
         RefreshInputBody: {
             /**
@@ -1620,7 +1644,7 @@ export interface components {
             body?: string;
             /** Format: int64 */
             grading: number;
-            tags: string[] | null;
+            tags?: string[] | null;
             /** Format: int64 */
             usefulness: number;
             /** Format: int64 */
@@ -1649,7 +1673,7 @@ export interface components {
             body?: string;
             /** Format: int64 */
             grading: number;
-            tags: string[] | null;
+            tags?: string[] | null;
             /** Format: int64 */
             usefulness: number;
             /** Format: int64 */
@@ -2590,7 +2614,7 @@ export interface operations {
                 page_size?: number;
                 year?: string;
                 tag?: string;
-                sort?: "recent" | "popular";
+                sort?: "newest" | "popular";
             };
             header?: never;
             path: {

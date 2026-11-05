@@ -195,7 +195,7 @@ func registerReviewRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		}
 		u := userFromContext(r.Context())
 		var reviewID int64
-		err := pool.QueryRow(r.Context(), `INSERT INTO course_reviews(course_id,author_id,semester,grading,workload,assessment,usefulness,tags,body,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'submitted') RETURNING id`, id, u.ID, semester, in.Grading, in.Workload, in.Assessment, in.Usefulness, in.Tags, strings.TrimSpace(in.Body)).Scan(&reviewID)
+		err := pool.QueryRow(r.Context(), `INSERT INTO course_reviews(course_id,author_id,semester,grading,workload,assessment,usefulness,tags,body,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'submitted') RETURNING id`, id, u.ID, semester, in.Grading, in.Workload, in.Assessment, in.Usefulness, nonNilStrings(in.Tags), strings.TrimSpace(in.Body)).Scan(&reviewID)
 		if err != nil {
 			writeJSON(w, 409, map[string]string{"error": "该课程学期已有有效评价，或评价无法提交"})
 			return
@@ -226,7 +226,7 @@ func registerReviewRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			}
 		}
 		u := userFromContext(r.Context())
-		tag, e := pool.Exec(r.Context(), `UPDATE course_reviews SET grading=$1,workload=$2,assessment=$3,usefulness=$4,tags=$5,body=$6,status='submitted',updated_at=now() WHERE id=$7 AND course_id=$8 AND author_id=$9 AND status IN ('published','rejected')`, in.Grading, in.Workload, in.Assessment, in.Usefulness, in.Tags, strings.TrimSpace(in.Body), reviewID, courseID, u.ID)
+		tag, e := pool.Exec(r.Context(), `UPDATE course_reviews SET grading=$1,workload=$2,assessment=$3,usefulness=$4,tags=$5,body=$6,status='submitted',updated_at=now() WHERE id=$7 AND course_id=$8 AND author_id=$9 AND status IN ('published','rejected')`, in.Grading, in.Workload, in.Assessment, in.Usefulness, nonNilStrings(in.Tags), strings.TrimSpace(in.Body), reviewID, courseID, u.ID)
 		if e != nil {
 			writeJSON(w, 409, map[string]string{"error": "评价无法编辑"})
 			return
@@ -275,7 +275,7 @@ func registerReviewRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		}
 		_, err = tx.Exec(r.Context(), `INSERT INTO moderation_actions(moderator_id,review_id,action,reason) VALUES($1,$2,$3,$4)`, u.ID, reviewID, action, strings.TrimSpace(req.Reason))
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'review_moderation',jsonb_build_object('review_id',$2,'status',$3))`, owner, reviewID, status)
+			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'review_moderation',jsonb_build_object('review_id',$2::bigint,'status',$3::text))`, owner, reviewID, status)
 		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "无法完成审核"})

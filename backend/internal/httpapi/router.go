@@ -176,3 +176,12 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
+
+// nonNilStrings 把 JSON 中省略的可选字符串数组规范化为空切片，
+// 避免 pgx 把 nil 编码成 NULL 而违反数据库的 NOT NULL 约束。
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}

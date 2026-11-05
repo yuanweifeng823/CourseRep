@@ -130,7 +130,7 @@ func registerModerationRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 					result, err = tx.Exec(r.Context(), `UPDATE course_reviews SET status='removed',updated_at=now() WHERE id=$1 AND status='published'`, *reviewID)
 				}
 				if err == nil && result.RowsAffected() > 0 {
-					_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'review_moderation',jsonb_build_object('review_id',$2,'status','removed'))`, owner, *reviewID)
+					_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'review_moderation',jsonb_build_object('review_id',$2::bigint,'status','removed'))`, owner, *reviewID)
 				}
 			} else {
 				err = tx.QueryRow(r.Context(), `SELECT author_id FROM course_posts WHERE id=$1`, *postID).Scan(&owner)
@@ -139,7 +139,7 @@ func registerModerationRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 					result, err = tx.Exec(r.Context(), `UPDATE course_posts SET status='removed',updated_at=now() WHERE id=$1 AND status='published'`, *postID)
 				}
 				if err == nil && result.RowsAffected() > 0 {
-					_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_moderation',jsonb_build_object('post_id',$2,'status','removed'))`, owner, *postID)
+					_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_moderation',jsonb_build_object('post_id',$2::bigint,'status','removed'))`, owner, *postID)
 				}
 			}
 		}
@@ -168,7 +168,7 @@ func registerModerationRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			_, err = tx.Exec(r.Context(), `INSERT INTO moderation_actions(moderator_id,report_id,review_id,post_id,action,reason) VALUES($1,$2,$3,$4,$5,$6)`, u.ID, reportID, rID, pID, action, strings.TrimSpace(in.Reason))
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'report_result',jsonb_build_object('report_id',$2,'status',$3))`, reporter, reportID, in.Decision)
+			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'report_result',jsonb_build_object('report_id',$2::bigint,'status',$3::text))`, reporter, reportID, in.Decision)
 		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "举报处置事务失败"})

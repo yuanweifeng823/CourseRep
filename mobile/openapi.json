@@ -543,11 +543,7 @@
             "$ref": "#/components/schemas/CourseStruct"
           },
           "ratings": {
-            "additionalProperties": {
-              "format": "double",
-              "type": "number"
-            },
-            "type": "object"
+            "$ref": "#/components/schemas/RatingsStruct"
           },
           "review_count": {
             "format": "int64",
@@ -884,13 +880,23 @@
             "format": "int64",
             "type": "integer"
           },
+          "active_user_definition": {
+            "type": "string"
+          },
           "open_teacher_complaints_30d": {
             "format": "int64",
             "type": "integer"
           },
+          "report_rate_definition": {
+            "type": "string"
+          },
           "report_rate_percent": {
             "format": "double",
             "type": "number"
+          },
+          "reports_30d": {
+            "format": "int64",
+            "type": "integer"
           },
           "valid_posts": {
             "format": "int64",
@@ -905,8 +911,11 @@
           "valid_reviews",
           "valid_posts",
           "active_course_viewers_30d",
+          "reports_30d",
           "report_rate_percent",
-          "open_teacher_complaints_30d"
+          "open_teacher_complaints_30d",
+          "report_rate_definition",
+          "active_user_definition"
         ],
         "type": "object"
       },
@@ -2229,6 +2238,7 @@
             "type": "string"
           },
           "attendance_year": {
+            "description": "实际修读年份，不得晚于当前年份；留空表示年份未注明",
             "format": "int64",
             "maximum": 2100,
             "minimum": 1990,
@@ -2243,6 +2253,7 @@
             "type": "string"
           },
           "display_identity": {
+            "description": "留空按署名展示",
             "enum": [
               "named",
               "anonymous"
@@ -2277,10 +2288,7 @@
         },
         "required": [
           "title",
-          "body",
-          "image_urls",
-          "topic_tags",
-          "display_identity"
+          "body"
         ],
         "type": "object"
       },
@@ -2399,6 +2407,7 @@
             "type": "string"
           },
           "attendance_year": {
+            "description": "实际修读年份，不得晚于当前年份；留空表示年份未注明",
             "format": "int64",
             "maximum": 2100,
             "minimum": 1990,
@@ -2413,6 +2422,7 @@
             "type": "string"
           },
           "display_identity": {
+            "description": "留空按署名展示",
             "enum": [
               "named",
               "anonymous"
@@ -2447,10 +2457,35 @@
         },
         "required": [
           "title",
-          "body",
-          "image_urls",
-          "topic_tags",
-          "display_identity"
+          "body"
+        ],
+        "type": "object"
+      },
+      "RatingsStruct": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment": {
+            "format": "double",
+            "type": "number"
+          },
+          "grading": {
+            "format": "double",
+            "type": "number"
+          },
+          "usefulness": {
+            "format": "double",
+            "type": "number"
+          },
+          "workload": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "grading",
+          "workload",
+          "assessment",
+          "usefulness"
         ],
         "type": "object"
       },
@@ -2622,8 +2657,7 @@
           "grading",
           "workload",
           "assessment",
-          "usefulness",
-          "tags"
+          "usefulness"
         ],
         "type": "object"
       },
@@ -2714,8 +2748,7 @@
           "grading",
           "workload",
           "assessment",
-          "usefulness",
-          "tags"
+          "usefulness"
         ],
         "type": "object"
       },
@@ -4192,7 +4225,7 @@
             "name": "sort",
             "schema": {
               "enum": [
-                "recent",
+                "newest",
                 "popular"
               ],
               "type": "string"

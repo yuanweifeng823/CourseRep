@@ -141,8 +141,13 @@ type contractCourseDetailOutput struct {
 			Department string  `json:"department"`
 			Credits    float64 `json:"credits"`
 		} `json:"course"`
-		ReviewCount int                `json:"review_count"`
-		Ratings     map[string]float64 `json:"ratings"`
+		ReviewCount int `json:"review_count"`
+		Ratings     struct {
+			Grading    float64 `json:"grading"`
+			Workload   float64 `json:"workload"`
+			Assessment float64 `json:"assessment"`
+			Usefulness float64 `json:"usefulness"`
+		} `json:"ratings"`
 	}
 }
 type contractReviewItem struct {
@@ -230,8 +235,11 @@ type contractMetricsOutput struct {
 		ValidReviews             int     `json:"valid_reviews"`
 		ValidPosts               int     `json:"valid_posts"`
 		ActiveCourseViewers30d   int     `json:"active_course_viewers_30d"`
+		Reports30d               int     `json:"reports_30d"`
 		ReportRatePercent        float64 `json:"report_rate_percent"`
 		OpenTeacherComplaints30d int     `json:"open_teacher_complaints_30d"`
+		ReportRateDefinition     string  `json:"report_rate_definition"`
+		ActiveUserDefinition     string  `json:"active_user_definition"`
 	}
 }
 type contractOwnReviewItem struct {
@@ -468,7 +476,7 @@ type reviewUpdateInput struct {
 		Workload   int      `json:"workload" minimum:"1" maximum:"5"`
 		Assessment int      `json:"assessment" minimum:"1" maximum:"5"`
 		Usefulness int      `json:"usefulness" minimum:"1" maximum:"5"`
-		Tags       []string `json:"tags" maxItems:"10"`
+		Tags       []string `json:"tags" maxItems:"10" required:"false"`
 		Text       string   `json:"body" maxLength:"2000" required:"false"`
 	}
 }
@@ -477,10 +485,10 @@ type postUpdateInput struct {
 	Body   struct {
 		Title           string   `json:"title" minLength:"1" maxLength:"120"`
 		Text            string   `json:"body" minLength:"1" maxLength:"2000"`
-		ImageURLs       []string `json:"image_urls" maxItems:"9"`
-		TopicTags       []string `json:"topic_tags" maxItems:"10"`
-		AttendanceYear  *int     `json:"attendance_year" minimum:"1990" maximum:"2100" required:"false"`
-		DisplayIdentity string   `json:"display_identity" enum:"named,anonymous"`
+		ImageURLs       []string `json:"image_urls" maxItems:"9" required:"false"`
+		TopicTags       []string `json:"topic_tags" maxItems:"10" required:"false"`
+		AttendanceYear  *int     `json:"attendance_year" minimum:"1990" maximum:"2100" required:"false" doc:"实际修读年份，不得晚于当前年份；留空表示年份未注明"`
+		DisplayIdentity string   `json:"display_identity" enum:"named,anonymous" required:"false" doc:"留空按署名展示"`
 	}
 }
 type authRegisterInput struct {
@@ -503,7 +511,7 @@ type reviewCreateInput struct {
 		Workload   int      `json:"workload" minimum:"1" maximum:"5"`
 		Assessment int      `json:"assessment" minimum:"1" maximum:"5"`
 		Usefulness int      `json:"usefulness" minimum:"1" maximum:"5"`
-		Tags       []string `json:"tags" maxItems:"10"`
+		Tags       []string `json:"tags" maxItems:"10" required:"false"`
 		Text       string   `json:"body" maxLength:"2000" required:"false"`
 	}
 }
@@ -512,10 +520,10 @@ type postCreateInput struct {
 	Body     struct {
 		Title           string   `json:"title" minLength:"1" maxLength:"120"`
 		Text            string   `json:"body" minLength:"1" maxLength:"2000"`
-		ImageURLs       []string `json:"image_urls" maxItems:"9"`
-		TopicTags       []string `json:"topic_tags" maxItems:"10"`
-		AttendanceYear  *int     `json:"attendance_year" minimum:"1990" maximum:"2100" required:"false"`
-		DisplayIdentity string   `json:"display_identity" enum:"named,anonymous"`
+		ImageURLs       []string `json:"image_urls" maxItems:"9" required:"false"`
+		TopicTags       []string `json:"topic_tags" maxItems:"10" required:"false"`
+		AttendanceYear  *int     `json:"attendance_year" minimum:"1990" maximum:"2100" required:"false" doc:"实际修读年份，不得晚于当前年份；留空表示年份未注明"`
+		DisplayIdentity string   `json:"display_identity" enum:"named,anonymous" required:"false" doc:"留空按署名展示"`
 	}
 }
 type reportCreateInput struct {
@@ -603,7 +611,7 @@ type postQueryInput struct {
 	PageSize int    `query:"page_size" minimum:"1" maximum:"100"`
 	Year     string `query:"year" maxLength:"10" pattern:"^([0-9]{4}|unspecified)$"`
 	Tag      string `query:"tag" maxLength:"60"`
-	Sort     string `query:"sort" enum:"recent,popular"`
+	Sort     string `query:"sort" enum:"newest,popular"`
 }
 
 func newContractAPI(dispatch ...http.Handler) (http.Handler, *huma.OpenAPI) {

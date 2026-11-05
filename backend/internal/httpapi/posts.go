@@ -212,7 +212,7 @@ func registerPostRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		}
 		u := userFromContext(r.Context())
 		var id int64
-		e := pool.QueryRow(r.Context(), `INSERT INTO course_posts(course_id,author_id,title,body,image_urls,topic_tags,attendance_year,display_identity,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitted') RETURNING id`, courseID, u.ID, strings.TrimSpace(in.Title), strings.TrimSpace(in.Body), in.ImageURLs, in.Tags, in.AttendanceYear, in.DisplayIdentity).Scan(&id)
+		e := pool.QueryRow(r.Context(), `INSERT INTO course_posts(course_id,author_id,title,body,image_urls,topic_tags,attendance_year,display_identity,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitted') RETURNING id`, courseID, u.ID, strings.TrimSpace(in.Title), strings.TrimSpace(in.Body), nonNilStrings(in.ImageURLs), nonNilStrings(in.Tags), in.AttendanceYear, in.DisplayIdentity).Scan(&id)
 		if e != nil {
 			writeJSON(w, 400, map[string]string{"error": "经验帖无法提交"})
 			return
@@ -256,7 +256,7 @@ func registerPostRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		u := userFromContext(r.Context())
-		tag, e := pool.Exec(r.Context(), `UPDATE course_posts SET title=$1,body=$2,image_urls=$3,topic_tags=$4,attendance_year=$5,display_identity=$6,status='submitted',updated_at=now() WHERE id=$7 AND author_id=$8 AND status IN ('published','rejected')`, strings.TrimSpace(in.Title), strings.TrimSpace(in.Body), in.ImageURLs, in.Tags, in.AttendanceYear, in.DisplayIdentity, id, u.ID)
+		tag, e := pool.Exec(r.Context(), `UPDATE course_posts SET title=$1,body=$2,image_urls=$3,topic_tags=$4,attendance_year=$5,display_identity=$6,status='submitted',updated_at=now() WHERE id=$7 AND author_id=$8 AND status IN ('published','rejected')`, strings.TrimSpace(in.Title), strings.TrimSpace(in.Body), nonNilStrings(in.ImageURLs), nonNilStrings(in.Tags), in.AttendanceYear, in.DisplayIdentity, id, u.ID)
 		if e != nil {
 			writeJSON(w, 409, map[string]string{"error": "经验帖无法编辑"})
 			return
@@ -327,7 +327,7 @@ func registerPostRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		}
 		_, err = tx.Exec(r.Context(), `INSERT INTO moderation_actions(moderator_id,post_id,action,reason) VALUES($1,$2,$3,$4)`, u.ID, id, req.Decision, strings.TrimSpace(req.Reason))
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_moderation',jsonb_build_object('post_id',$2,'status',$3))`, owner, id, status)
+			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_moderation',jsonb_build_object('post_id',$2::bigint,'status',$3::text))`, owner, id, status)
 		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "无法完成审核"})
@@ -446,7 +446,7 @@ func registerInteractionRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		if owner != u.ID {
-			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_comment',jsonb_build_object('post_id',$2))`, owner, id)
+			_, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_comment',jsonb_build_object('post_id',$2::bigint))`, owner, id)
 		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "无法发表评论"})
@@ -485,7 +485,7 @@ func registerInteractionRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 				return
 			}
 			if v == "like" && owner != u.ID && inserted.RowsAffected() == 1 {
-				if _, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_like',jsonb_build_object('post_id',$2))`, owner, id); err != nil {
+				if _, err = tx.Exec(r.Context(), `INSERT INTO notifications(user_id,kind,payload) VALUES($1,'post_like',jsonb_build_object('post_id',$2::bigint))`, owner, id); err != nil {
 					writeJSON(w, 500, map[string]string{"error": "操作失败"})
 					return
 				}
