@@ -2,7 +2,7 @@
   "expo": {
     "name": "CourseRep",
     "slug": "courserep",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {
@@ -12,7 +12,8 @@
       "**/*"
     ],
     "android": {
-      "package": "com.anonymous.courserep"
+      "package": "com.anonymous.courserep",
+      "versionCode": 2
     }
   }
 }
