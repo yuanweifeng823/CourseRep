@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CourseDetail } from './CourseDetail';
 import { AdminScreen, NotificationsScreen, ProfileEditScreen } from './UserScreens';
-import { apiFetch } from './api';
+import { apiFetch, initApiBase } from './api';
 import type { Course, FeedPost, LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
 import { CourseCatalog } from './src/screens/CourseCatalog';
 import { ComposePostScreen } from './src/screens/ComposePostScreen';
@@ -13,6 +13,7 @@ import { MeScreen } from './src/screens/MeScreen';
 import { MyListScreen, type EditTarget, type MyListKind } from './src/screens/MyListScreen';
 import { PostDetailScreen } from './src/screens/PostDetailScreen';
 import { ShareFeedScreen } from './src/screens/ShareFeedScreen';
+import { ServerField } from './src/ui/ServerField';
 import { colors } from './src/ui/theme';
 import {
   ActivityIndicator,
@@ -128,6 +129,7 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
             <Text style={styles.authSwitch}>修改注册信息</Text>
           </TouchableOpacity>
         )}
+        <ServerField />
       </ScrollView>
     </SafeAreaView>
   );
@@ -149,6 +151,7 @@ function AppShell() {
 
   useEffect(() => {
     void (async () => {
+      await initApiBase();
       let token = await SecureStore.getItemAsync('access_token');
       const refresh = await SecureStore.getItemAsync('refresh_token');
       if (token) {

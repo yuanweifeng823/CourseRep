@@ -5,6 +5,7 @@ import { apiFetch } from '../../api';
 import type { CourseFacets, UserProfile } from '../../src/api/types';
 import type { MyListKind } from './MyListScreen';
 import { DepartmentPicker } from '../ui/DepartmentPicker';
+import { ServerField } from '../ui/ServerField';
 import { colors, statusLabel } from '../ui/theme';
 
 type Props = {
@@ -118,6 +119,8 @@ export function MeScreen({ token, onLogout, onOpenList, onOpenAdmin }: Props) {
             <Text style={styles.lockedHint}>仅管理员账号可见。普通账号不能进入审核队列。</Text>
           </View>
         )}
+
+        <ServerField />
 
         <TouchableOpacity style={styles.logout} onPress={onLogout}>
           <Text style={styles.logoutText}>退出登录</Text>
