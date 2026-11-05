@@ -14,7 +14,6 @@ import {
   View,
 } from 'react-native';
 
-const filters = ['全部课程', '按专业', '按学期', '评分排序'];
 const tabs = [
   { icon: '⌂', label: '发现' },
   { icon: '▤', label: '课程' },
@@ -39,18 +38,17 @@ const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL ||
   (Platform.OS === 'android' ? 'http://10.0.2.2:8080' : 'http://localhost:8080')).replace(/\/$/, '');
 
 export default function App() {
-  const [activeFilter, setActiveFilter] = useState(filters[0]);
   const [activeTab, setActiveTab] = useState('发现');
   const [query, setQuery] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState('');
-  const filteredTitle = useMemo(() => query.trim(), [query]);
-  const loadCourses = useCallback(async () => {
+  const loadCourses = useCallback(async (searchTerm: string) => {
     setLoading(true);
     setApiError('');
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/courses`, { headers: { Accept: 'application/json' } });
+      const params = new URLSearchParams({ page: '1', page_size: '100', q: searchTerm });
+      const response = await fetch(`${apiBaseUrl}/api/v1/courses?${params.toString()}`, { headers: { Accept: 'application/json' } });
       if (!response.ok) throw new Error(`服务器返回 ${response.status}`);
       const payload = await response.json() as CourseListResponse;
       if (!payload || !Array.isArray(payload.items)) throw new Error('课程接口响应格式不正确');
@@ -62,14 +60,12 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { void loadCourses(); }, [loadCourses]);
+  useEffect(() => {
+    const timer = setTimeout(() => { void loadCourses(query.trim()); }, 300);
+    return () => clearTimeout(timer);
+  }, [loadCourses, query]);
 
-  const visibleCourses = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return courses;
-    return courses.filter((course) => [course.course_code, course.course_name, course.professor, course.department]
-      .some((value) => value.toLocaleLowerCase().includes(needle)));
-  }, [courses, query]);
+  const filteredTitle = query.trim();
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -78,7 +74,7 @@ export default function App() {
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadCourses()} tintColor={green} />}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadCourses(query.trim())} tintColor={green} />}
         >
           <View style={styles.topbar}>
             <View style={styles.brand}>
@@ -118,13 +114,7 @@ export default function App() {
             </View>
             <Text style={styles.count}>{courses.length} 门课程</Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-            {filters.map((filter) => (
-              <TouchableOpacity key={filter} onPress={() => setActiveFilter(filter)} style={[styles.filter, activeFilter === filter && styles.filterActive]}>
-                <Text style={[styles.filterText, activeFilter === filter && styles.filterTextActive]}>{filter}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          <Text style={styles.sectionSub}>搜索范围：课程代码、名称、教授和专业</Text>
 
           {loading && courses.length === 0 && !apiError ? (
             <View style={styles.emptyCard}>
@@ -137,9 +127,9 @@ export default function App() {
               <View style={styles.emptyIcon}><Text style={styles.errorIcon}>!</Text></View>
               <Text style={styles.emptyTitle}>课程服务暂不可用</Text>
               <Text style={styles.emptyBody}>{apiError}</Text>
-              <TouchableOpacity style={styles.retry} onPress={() => void loadCourses()}><Text style={styles.retryText}>重新连接</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.retry} onPress={() => void loadCourses(query.trim())}><Text style={styles.retryText}>重新连接</Text></TouchableOpacity>
             </View>
-          ) : visibleCourses.length === 0 ? (
+          ) : courses.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}><Text style={styles.emptyIconText}>⌕</Text></View>
               <Text style={styles.emptyTitle}>{filteredTitle ? '暂时没有匹配课程' : '课程目录正在准备中'}</Text>
@@ -153,7 +143,7 @@ export default function App() {
             </View>
           ) : (
             <View style={styles.courseList}>
-              {visibleCourses.map((course) => (
+              {courses.map((course) => (
                 <View key={course.id} style={styles.courseCard}>
                   <View style={styles.courseMark}><Text style={styles.courseMarkText}>{course.course_code.slice(0, 1)}</Text></View>
                   <View style={styles.courseInfo}>
