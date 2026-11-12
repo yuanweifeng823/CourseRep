@@ -2,10 +2,14 @@
 
 后端包含 HTTP 服务入口、健康检查和 PostgreSQL 课程目录查询。课程 API 支持 `q` 搜索（课程代码、名称、教授、专业）、`department`/`semester` 精确筛选、按 `rating`/`reviews`/`posts` 排序及有界分页（`page`、`page_size`）；`GET /api/v1/course-facets` 返回当前目录的专业和学期筛选项。
 
+首次部署请先按[根目录部署指南](../README.md)创建并载入本地配置（包括 `AUTH_SECRET`、SMTP、`ADMIN_EMAILS` 和图片目录）。以下命令从**仓库根目录**执行，假设当前终端已载入环境变量：
+
 ```powershell
 docker compose up -d postgres
-$env:DATABASE_URL = "postgres://courserep:courserep-local@localhost:5433/courserep?sslmode=disable"
-./backend/scripts/migrate.ps1 up
+# 等待 postgres healthy 后再迁移和启动。
+Set-Location backend
+./scripts/migrate.ps1 up
+if ($LASTEXITCODE -ne 0) { throw '数据库迁移失败' }
 go run ./cmd/courserep
 ```
 
@@ -19,7 +23,7 @@ go run ./cmd/courserep
 
 管理员课程导入使用 `POST /api/v1/admin/course-imports/preview` 上传 multipart `file`，支持 UTF-8 CSV/XLSX、最多 5000 行与 10MB；XLSX 读取第一个工作表。可从 [`templates/course-import-template.csv`](templates/course-import-template.csv) 开始填写。表头必须包含 `course_code,course_name,professor,semester,department,credits`（顺序可调整）；除教授外均必填。课程代码最多 40 字符、课程名 200、教授 120、学期 40、专业 120；学分为 0 到 99 的数字。同一文件内课程代码与学期不得重复。响应包含逐行错误及有效记录预览；移动端展示前 30 条有效记录和全部校验错误。没有错误时，使用响应的 `batch_id` 调用 `POST /api/v1/admin/course-imports/{batchID}/confirm` 才会在事务中写入课程目录；相同课程代码/学期作为更新处理。批次 24 小时过期。
 
-普通已验证用户可 `POST /api/v1/reports` 举报公开评价或帖子；运营角色可查看 `/api/v1/admin/reports` 并处理 `/api/v1/admin/reports/{reportID}/decision`。管理员角色可维护 `/api/v1/admin/topic-tags` 词典和执行课程导入。迁移 `00009_seed_topic_tags.sql` 预置 8 个初始话题标签，运营可再增删启停。首个管理员需由受控运维方式在数据库中授予 `users.role='admin'`；不要在公开 API 暴露角色提升能力。
+普通已验证用户可 `POST /api/v1/reports` 举报公开评价或帖子；运营角色可查看 `/api/v1/admin/reports` 并处理 `/api/v1/admin/reports/{reportID}/decision`。管理员角色可维护 `/api/v1/admin/topic-tags` 词典和执行课程导入。迁移 `00009_seed_topic_tags.sql` 预置 8 个初始话题标签，运营可再增删启停。首个管理员可通过环境变量 `ADMIN_EMAILS` 指定：注册验证时赋予管理员角色，服务启动时提升名单中的已有账号，只升不降。首次部署应明确填写自己的校内邮箱；撤权需单独受控处理，不要在公开 API 暴露角色提升能力。
 
 运营角色还可分页查看 `/api/v1/admin/reviews` 和 `/api/v1/admin/posts` 中待审内容，并通过对应的 `/decision` 路由通过或拒绝。待审 DTO 不包含作者关联 ID；匿名帖子仅显示“同校已验证”。
 

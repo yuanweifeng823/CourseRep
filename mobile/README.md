@@ -2,8 +2,10 @@
 
 ## 启动
 
+首次部署先完成[根目录部署指南](../README.md)中的数据库、后端、邮件及管理员配置。以下命令在 `mobile/` 目录执行：
+
 ```powershell
-npm install
+npm ci
 npm start
 ```
 
@@ -17,4 +19,4 @@ App 启动后先显示校内账号注册/登录流程。注册支持学生邮箱
 
 默认 Android 模拟器地址为 `http://10.0.2.2:8080`，iOS 模拟器/Web 默认用 `http://localhost:8080`。复制 `.env.example` 为 `.env` 可设置 `EXPO_PUBLIC_API_URL`。Android 真机需将地址设为开发机的局域网 IP，并确保防火墙允许 8080 端口。
 
-后端从仓库根目录启动：`go run ./backend/cmd/courserep`，默认监听 8080。
+后端需先按根目录指南载入环境变量，再在 `backend/` 目录执行 `go run ./cmd/courserep`，默认监听 8080。登录页/「我的」页保存的服务器地址优先于 `.env`，换电脑联调时请同步修改。
