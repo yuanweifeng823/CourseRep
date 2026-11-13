@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { apiBaseUrl, apiFetch } from './api';
 import type { AdminTopicTagListResponse, Bookmark, BookmarkListResponse, CommunitySettings, CompletedCourse, CompletedCourseListResponse, CorrectionItem, CorrectionListResponse, MetricsResponse, Notification, NotificationListResponse, OwnPost, OwnPostListResponse, OwnReview, OwnReviewListResponse, PendingPost, PendingReview, ReportItem, ReportListResponse, TopicTagListResponse, UserProfile } from './src/api/types';
 import * as DocumentPicker from 'expo-document-picker';
@@ -68,9 +68,18 @@ function CourseImportPanel({token,canImport,onMessage}:{token:string;canImport:b
  const [busy,setBusy]=useState(false);
  if(!canImport)return <Text style={styles.empty}>课程导入仅管理员可用</Text>;
  const choose=async()=>{
-  const picked=await DocumentPicker.getDocumentAsync({type:['text/csv','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],copyToCacheDirectory:true});
+  // Android 文件提供程序可能为 CSV 或 XLSX 返回通用 MIME 类型。
+  const picked=await DocumentPicker.getDocumentAsync({
+   type:Platform.OS==='android'?'*/*':['text/csv','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+   copyToCacheDirectory:true,
+  });
   if(picked.canceled)return;
-  const asset=picked.assets[0];const form=new FormData();form.append('file',{uri:asset.uri,name:asset.name,type:asset.mimeType||'application/octet-stream'} as unknown as Blob);
+  const asset=picked.assets[0];
+  if(!/\.(csv|xlsx)$/i.test(asset.name)){
+   onMessage('请选择扩展名为 .csv 或 .xlsx 的文件');
+   return;
+  }
+  const form=new FormData();form.append('file',{uri:asset.uri,name:asset.name,type:asset.mimeType||'application/octet-stream'} as unknown as Blob);
   setBusy(true);setBatch('');setPreview([]);setErrors([]);
   try{
    const r=await apiFetch('/api/v1/admin/course-imports/preview',token,{method:'POST',body:form});
