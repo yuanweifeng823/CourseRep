@@ -38,3 +38,26 @@ func TestOpenAPIServedByAPIHandler(t *testing.T) {
 		t.Fatal("OpenAPI route returned invalid JSON")
 	}
 }
+
+func TestPostDetailContractIncludesViewerInteractionState(t *testing.T) {
+	data, err := OpenAPIJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatal(err)
+	}
+	properties := spec.Components.Schemas["PostStruct"].Properties
+	for _, field := range []string{"liked_by_me", "bookmarked_by_me", "like_count", "comment_count"} {
+		if _, ok := properties[field]; !ok {
+			t.Errorf("post detail is missing %s", field)
+		}
+	}
+}

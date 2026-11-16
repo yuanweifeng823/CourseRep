@@ -12,40 +12,41 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiBaseUrl, apiFetch } from '../../api';
-import type { Comment, CommentListResponse, Course, FeedPost, PostDetailPost, PostDetailResponse } from '../api/types';
+import type { CommentListResponse, Course, PostDetailResponse } from '../api/types';
 import { colors } from '../ui/theme';
+
+export type PostCoursePreview = Pick<Course, 'course_code' | 'course_name'> &
+  Partial<Pick<Course, 'department' | 'semester'>>;
 
 type Props = {
   token: string;
   postId: number;
-  course: Course;
-  seed?: Partial<FeedPost>;
+  course: PostCoursePreview;
   onBack: () => void;
-  onOpenCourse: (course: Course) => void;
+  onOpenCourse: (courseId: number) => void;
 };
 
-export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCourse }: Props) {
+export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }: Props) {
   const queryClient = useQueryClient();
-  const [liked, setLiked] = useState(seed?.liked_by_me ?? false);
-  const [likeCount, setLikeCount] = useState(seed?.like_count ?? 0);
-  const [bookmarked, setBookmarked] = useState(seed?.bookmarked_by_me ?? false);
-  const [commentCount, setCommentCount] = useState(seed?.comment_count ?? 0);
   const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
 
   const detail = useQuery({
     queryKey: ['post-detail', postId],
+    staleTime: 0,
     queryFn: async () => {
       const response = await apiFetch(`/api/v1/posts/${postId}`, token);
       if (!response.ok) throw new Error('经验帖暂时无法查看');
       return (await response.json()) as PostDetailResponse;
     },
   });
+  const post = detail.isError ? undefined : detail.data?.post;
 
   const comments = useQuery({
     queryKey: ['post-comments', postId],
+    enabled: !!post,
     queryFn: async () => {
       const response = await apiFetch(`/api/v1/posts/${postId}/comments`, token);
       if (!response.ok) throw new Error('评论暂时无法加载');
@@ -53,41 +54,21 @@ export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCo
     },
   });
 
-  const post: PostDetailPost = detail.data?.post ?? {
-    id: postId,
-    course_id: course.id,
-    title: seed?.title ?? '',
-    body: seed?.body ?? '',
-    image_urls: seed?.image_urls ?? [],
-    topic_tags: seed?.topic_tags ?? [],
-    attendance_year: seed?.attendance_year ?? null,
-    attendance_year_label: seed?.attendance_year_label ?? '年份未注明',
-    display_identity: seed?.display_identity ?? 'anonymous',
-    display_name: seed?.display_name ?? '同校已验证',
-    created_at: String(seed?.created_at ?? ''),
-  };
-
-  const toggleLike = async () => {
-    const next = !liked;
-    setLiked(next);
-    setLikeCount((value) => Math.max(0, value + (next ? 1 : -1)));
-    const response = await apiFetch(`/api/v1/posts/${postId}/like`, token, { method: next ? 'PUT' : 'DELETE' });
-    if (!response.ok) {
-      setLiked(!next);
-      setLikeCount((value) => Math.max(0, value + (next ? -1 : 1)));
-      Alert.alert('操作失败', '请稍后再试');
-    }
-  };
-
-  const toggleBookmark = async () => {
-    const next = !bookmarked;
-    setBookmarked(next);
-    const response = await apiFetch(`/api/v1/posts/${postId}/bookmark`, token, { method: next ? 'PUT' : 'DELETE' });
-    if (!response.ok) {
-      setBookmarked(!next);
-      Alert.alert('操作失败', '请稍后再试');
-    }
-  };
+  const interaction = useMutation({
+    mutationFn: async ({ kind, active }: { kind: 'like' | 'bookmark'; active: boolean }) => {
+      const response = await apiFetch(`/api/v1/posts/${postId}/${kind}`, token, { method: active ? 'DELETE' : 'PUT' });
+      if (!response.ok) throw new Error('操作失败');
+    },
+    onSuccess: async (_, { kind }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['post-detail', postId] }),
+        queryClient.invalidateQueries({ queryKey: ['feed'] }),
+        queryClient.invalidateQueries({ queryKey: ['posts', post?.course_id] }),
+        queryClient.invalidateQueries({ queryKey: [kind === 'bookmark' ? 'my-bookmarks' : 'home'] }),
+      ]);
+    },
+    onError: () => Alert.alert('操作失败', '请稍后再试'),
+  });
 
   const submitComment = async () => {
     const body = comment.trim();
@@ -102,9 +83,12 @@ export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCo
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error || '评论失败');
       setComment('');
-      setCommentCount((value) => value + 1);
-      await queryClient.invalidateQueries({ queryKey: ['post-comments', postId] });
-      await queryClient.invalidateQueries({ queryKey: ['feed'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['post-comments', postId] }),
+        queryClient.invalidateQueries({ queryKey: ['post-detail', postId] }),
+        queryClient.invalidateQueries({ queryKey: ['feed'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
+      ]);
     } catch (error) {
       Alert.alert('无法评论', error instanceof Error ? error.message : '请稍后再试');
     } finally {
@@ -112,7 +96,10 @@ export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCo
     }
   };
 
-  const commentItems: Comment[] = comments.data?.items ?? [];
+  const commentItems = comments.data?.items ?? [];
+  const liked = post?.liked_by_me;
+  const bookmarked = post?.bookmarked_by_me;
+  const courseMeta = [course.department, course.semester].filter(Boolean).join(' · ');
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -124,6 +111,7 @@ export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCo
         <View style={{ width: 24 }} />
       </View>
 
+      {post ? <>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>{post.title}</Text>
         <Text style={styles.meta}>
@@ -151,36 +139,42 @@ export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCo
           </View>
         )}
 
-        <TouchableOpacity style={styles.courseCard} onPress={() => onOpenCourse(course)} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.courseCard} onPress={() => onOpenCourse(post.course_id)} activeOpacity={0.85}>
           <View style={{ flex: 1 }}>
             <Text style={styles.courseLabel}>关联课程</Text>
             <Text style={styles.courseCode}>{course.course_code}</Text>
             <Text style={styles.courseName} numberOfLines={1}>
               {course.course_name}
             </Text>
-            <Text style={styles.courseMeta}>
-              {course.department} · {course.semester}
-            </Text>
+            {courseMeta ? <Text style={styles.courseMeta}>{courseMeta}</Text> : null}
           </View>
           <Text style={styles.courseChevron}>›</Text>
         </TouchableOpacity>
 
         <View style={styles.actionRow}>
-          <TouchableOpacity style={[styles.action, liked && styles.actionActive]} onPress={() => void toggleLike()}>
+          <TouchableOpacity
+            style={[styles.action, liked && styles.actionActive]}
+            disabled={interaction.isPending || detail.isFetching || typeof liked !== 'boolean'}
+            onPress={() => interaction.mutate({ kind: 'like', active: liked === true })}
+          >
             <Text style={[styles.actionIcon, liked && styles.actionTextActive]}>{liked ? '♥' : '♡'}</Text>
-            <Text style={[styles.actionText, liked && styles.actionTextActive]}>{likeCount}</Text>
+            <Text style={[styles.actionText, liked && styles.actionTextActive]}>{post.like_count ?? '—'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.action, bookmarked && styles.actionActive]} onPress={() => void toggleBookmark()}>
+          <TouchableOpacity
+            style={[styles.action, bookmarked && styles.actionActive]}
+            disabled={interaction.isPending || detail.isFetching || typeof bookmarked !== 'boolean'}
+            onPress={() => interaction.mutate({ kind: 'bookmark', active: bookmarked === true })}
+          >
             <Text style={[styles.actionIcon, bookmarked && styles.actionTextActive]}>{bookmarked ? '★' : '☆'}</Text>
             <Text style={[styles.actionText, bookmarked && styles.actionTextActive]}>收藏</Text>
           </TouchableOpacity>
           <View style={styles.action}>
             <Text style={styles.actionIcon}>💬</Text>
-            <Text style={styles.actionText}>{commentCount}</Text>
+            <Text style={styles.actionText}>{post.comment_count ?? commentItems.length}</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>评论 {commentCount}</Text>
+        <Text style={styles.sectionTitle}>评论 {post.comment_count ?? commentItems.length}</Text>
         {comments.isLoading ? (
           <ActivityIndicator color={colors.green} style={{ marginVertical: 16 }} />
         ) : comments.isError ? (
@@ -204,7 +198,6 @@ export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCo
           ))
         )}
 
-        {detail.isError ? <Text style={styles.emptyText}>内容可能已下架或需要重新审核。</Text> : null}
       </ScrollView>
 
       <View style={styles.composerRow}>
@@ -221,6 +214,16 @@ export function PostDetailScreen({ token, postId, course, seed, onBack, onOpenCo
           <Text style={styles.sendText}>{sending ? '…' : '发送'}</Text>
         </TouchableOpacity>
       </View>
+      </> : detail.isPending ? (
+        <ActivityIndicator color={colors.green} style={{ marginTop: 24 }} />
+      ) : (
+        <View style={styles.content}>
+          <Text style={styles.emptyText}>暂时无法加载这篇经验帖。</Text>
+          <TouchableOpacity onPress={() => void detail.refetch()}>
+            <Text style={styles.courseCode}>重新加载</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }

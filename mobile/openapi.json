@@ -2592,6 +2592,13 @@
           "body": {
             "type": "string"
           },
+          "bookmarked_by_me": {
+            "type": "boolean"
+          },
+          "comment_count": {
+            "format": "int64",
+            "type": "integer"
+          },
           "course_id": {
             "format": "int64",
             "type": "integer"
@@ -2618,6 +2625,13 @@
               "null"
             ]
           },
+          "like_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "liked_by_me": {
+            "type": "boolean"
+          },
           "title": {
             "type": "string"
           },
@@ -2642,7 +2656,11 @@
           "attendance_year_label",
           "display_identity",
           "display_name",
-          "created_at"
+          "created_at",
+          "liked_by_me",
+          "bookmarked_by_me",
+          "like_count",
+          "comment_count"
         ],
         "type": "object"
       },

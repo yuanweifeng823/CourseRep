@@ -5,13 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CourseDetail } from './CourseDetail';
 import { AdminScreen, NotificationsScreen, ProfileEditScreen } from './UserScreens';
 import { apiFetch, initApiBase } from './api';
-import type { Course, FeedPost, LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
+import type { LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
 import { CourseCatalog } from './src/screens/CourseCatalog';
 import { ComposePostScreen } from './src/screens/ComposePostScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MeScreen } from './src/screens/MeScreen';
 import { MyListScreen, type EditTarget, type MyListKind } from './src/screens/MyListScreen';
-import { PostDetailScreen } from './src/screens/PostDetailScreen';
+import { PostDetailScreen, type PostCoursePreview } from './src/screens/PostDetailScreen';
 import { ShareFeedScreen } from './src/screens/ShareFeedScreen';
 import { ServerField } from './src/ui/ServerField';
 import { colors } from './src/ui/theme';
@@ -31,8 +31,8 @@ import {
 type Tab = 'home' | 'courses' | 'share' | 'notifications' | 'me';
 
 type Route =
-  | { kind: 'course'; course: Course }
-  | { kind: 'post'; postId: number; course: Course; seed?: Partial<FeedPost> }
+  | { kind: 'course'; courseId: number }
+  | { kind: 'post'; postId: number; course: PostCoursePreview }
   | { kind: 'list'; list: MyListKind }
   | { kind: 'admin' }
   | { kind: 'compose' }
@@ -218,6 +218,7 @@ function AppShell() {
 
   const push = (route: Route) => setRoutes((prev) => [...prev, route]);
   const pop = () => setRoutes((prev) => prev.slice(0, -1));
+  const openCourse = (courseId: number) => push({ kind: 'course', courseId });
 
   if (!authLoaded)
     return (
@@ -230,16 +231,15 @@ function AppShell() {
   const top = routes[routes.length - 1];
   let body: React.ReactNode;
   if (top?.kind === 'course') {
-    body = <CourseDetail course={top.course} token={accessToken} onBack={pop} />;
+    body = <CourseDetail courseId={top.courseId} token={accessToken} onBack={pop} />;
   } else if (top?.kind === 'post') {
     body = (
       <PostDetailScreen
         token={accessToken}
         postId={top.postId}
         course={top.course}
-        seed={top.seed}
         onBack={pop}
-        onOpenCourse={(course) => push({ kind: 'course', course })}
+        onOpenCourse={openCourse}
       />
     );
   } else if (top?.kind === 'admin') {
@@ -258,16 +258,24 @@ function AppShell() {
       />
     );
   } else if (top?.kind === 'list') {
-    body = <MyListScreen token={accessToken} kind={top.list} onBack={pop} onEdit={(edit) => push({ kind: 'edit', edit })} />;
+    body = (
+      <MyListScreen
+        token={accessToken}
+        kind={top.list}
+        onBack={pop}
+        onEdit={(edit) => push({ kind: 'edit', edit })}
+        onOpenBookmark={(item) => push({ kind: 'post', postId: item.id, course: item })}
+      />
+    );
   } else if (top?.kind === 'compose') {
     body = <ComposePostScreen token={accessToken} onClose={pop} onPublished={pop} />;
   } else if (tab === 'courses') {
-    body = <CourseCatalog token={accessToken} onOpenCourse={(course) => push({ kind: 'course', course })} />;
+    body = <CourseCatalog token={accessToken} onOpenCourse={(course) => openCourse(course.id)} />;
   } else if (tab === 'share') {
     body = (
       <ShareFeedScreen
         token={accessToken}
-        onOpenPost={(post) => push({ kind: 'post', postId: post.id, course: post.course, seed: post })}
+        onOpenPost={(post) => push({ kind: 'post', postId: post.id, course: post.course })}
         onCompose={() => push({ kind: 'compose' })}
       />
     );
@@ -286,25 +294,8 @@ function AppShell() {
     body = (
       <HomeScreen
         token={accessToken}
-        onOpenCourse={(course) => push({ kind: 'course', course })}
-        onOpenPost={(post) =>
-          push({
-            kind: 'post',
-            postId: post.id,
-            course: post.course,
-            seed: {
-              title: post.title,
-              body: post.body,
-              attendance_year: post.attendance_year,
-              attendance_year_label: post.attendance_year_label,
-              display_identity: post.display_identity,
-              display_name: post.display_name,
-              created_at: post.created_at,
-              like_count: post.like_count,
-              comment_count: post.comment_count,
-            },
-          })
-        }
+        onOpenCourse={(course) => openCourse(course.id)}
+        onOpenPost={(post) => push({ kind: 'post', postId: post.id, course: post.course })}
       />
     );
   }

@@ -205,6 +205,10 @@ type contractPostDetailOutput struct {
 			DisplayIdentity     string   `json:"display_identity"`
 			DisplayName         string   `json:"display_name"`
 			CreatedAt           string   `json:"created_at"`
+			LikedByMe           bool     `json:"liked_by_me"`
+			BookmarkedByMe      bool     `json:"bookmarked_by_me"`
+			LikeCount           int64    `json:"like_count"`
+			CommentCount        int64    `json:"comment_count"`
 		} `json:"post"`
 	}
 }

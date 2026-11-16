@@ -29,9 +29,10 @@ type Props = {
   kind: MyListKind;
   onBack: () => void;
   onEdit: (target: EditTarget) => void;
+  onOpenBookmark: (item: Bookmark) => void;
 };
 
-export function MyListScreen({ token, kind, onBack, onEdit }: Props) {
+export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Props) {
   const courses = useQuery({
     queryKey: ['my-courses'],
     enabled: kind === 'courses',
@@ -146,7 +147,12 @@ export function MyListScreen({ token, kind, onBack, onEdit }: Props) {
         {kind === 'bookmarks' &&
           (bookmarks.data?.length ? (
             bookmarks.data.map((item: Bookmark) => (
-              <View key={item.id} style={styles.card}>
+              <TouchableOpacity
+                key={item.id}
+                style={styles.card}
+                accessibilityRole="button"
+                onPress={() => onOpenBookmark(item)}
+              >
                 <Text style={styles.title}>{item.title}</Text>
                 <Text style={styles.meta}>
                   {item.course_code} · {item.attendance_year_label}
@@ -154,7 +160,7 @@ export function MyListScreen({ token, kind, onBack, onEdit }: Props) {
                 <Text style={styles.body} numberOfLines={2}>
                   {item.body}
                 </Text>
-              </View>
+              </TouchableOpacity>
             ))
           ) : (
             <Text style={styles.empty}>还没有收藏经验帖</Text>

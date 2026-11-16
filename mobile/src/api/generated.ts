@@ -1660,6 +1660,9 @@ export interface components {
             attendance_year: number | null;
             attendance_year_label: string;
             body: string;
+            bookmarked_by_me: boolean;
+            /** Format: int64 */
+            comment_count: number;
             /** Format: int64 */
             course_id: number;
             created_at: string;
@@ -1668,6 +1671,9 @@ export interface components {
             /** Format: int64 */
             id: number;
             image_urls: string[] | null;
+            /** Format: int64 */
+            like_count: number;
+            liked_by_me: boolean;
             title: string;
             topic_tags: string[] | null;
         };

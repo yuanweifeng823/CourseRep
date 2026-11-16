@@ -274,18 +274,33 @@ func registerPostRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		var x struct {
-			ID       int64    `json:"id"`
-			CourseID int64    `json:"course_id"`
-			Title    string   `json:"title"`
-			Body     string   `json:"body"`
-			Images   []string `json:"image_urls"`
-			Tags     []string `json:"topic_tags"`
-			Year     *int     `json:"attendance_year"`
-			Identity string   `json:"display_identity"`
-			Created  any      `json:"created_at"`
-			Name     string   `json:"display_name"`
+			ID             int64    `json:"id"`
+			CourseID       int64    `json:"course_id"`
+			Title          string   `json:"title"`
+			Body           string   `json:"body"`
+			Images         []string `json:"image_urls"`
+			Tags           []string `json:"topic_tags"`
+			Year           *int     `json:"attendance_year"`
+			Identity       string   `json:"display_identity"`
+			Created        any      `json:"created_at"`
+			Name           string   `json:"display_name"`
+			LikedByMe      bool     `json:"liked_by_me"`
+			BookmarkedByMe bool     `json:"bookmarked_by_me"`
+			LikeCount      int64    `json:"like_count"`
+			CommentCount   int64    `json:"comment_count"`
 		}
-		e := pool.QueryRow(r.Context(), `SELECT p.id,p.course_id,p.title,p.body,p.image_urls,p.topic_tags,p.attendance_year,p.display_identity,p.created_at,CASE WHEN p.display_identity='anonymous' THEN '同校已验证' ELSE u.nickname END FROM course_posts p JOIN users u ON u.id=p.author_id WHERE p.id=$1 AND p.status='published'`, id).Scan(&x.ID, &x.CourseID, &x.Title, &x.Body, &x.Images, &x.Tags, &x.Year, &x.Identity, &x.Created, &x.Name)
+		viewer := userFromContext(r.Context())
+		e := pool.QueryRow(r.Context(), `
+			SELECT p.id,p.course_id,p.title,p.body,p.image_urls,p.topic_tags,p.attendance_year,p.display_identity,p.created_at,
+			       CASE WHEN p.display_identity='anonymous' THEN '同校已验证' ELSE u.nickname END,
+			       EXISTS(SELECT 1 FROM post_likes WHERE post_id=p.id AND user_id=$2),
+			       EXISTS(SELECT 1 FROM post_bookmarks WHERE post_id=p.id AND user_id=$2),
+			       (SELECT count(*) FROM post_likes WHERE post_id=p.id),
+			       (SELECT count(*) FROM post_comments WHERE post_id=p.id)
+			FROM course_posts p JOIN users u ON u.id=p.author_id
+			WHERE p.id=$1 AND p.status='published'`, id, viewer.ID).
+			Scan(&x.ID, &x.CourseID, &x.Title, &x.Body, &x.Images, &x.Tags, &x.Year, &x.Identity, &x.Created, &x.Name,
+				&x.LikedByMe, &x.BookmarkedByMe, &x.LikeCount, &x.CommentCount)
 		if e != nil {
 			writeJSON(w, 404, map[string]string{"error": "帖子不存在"})
 			return
@@ -295,8 +310,14 @@ func registerPostRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			label = strconv.Itoa(*x.Year)
 		}
 		// 浏览记录只用于首页热门排序，写入失败不应影响读取详情。
-		_, _ = pool.Exec(r.Context(), `INSERT INTO post_view_events(post_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, id, userFromContext(r.Context()).ID)
-		writeJSON(w, 200, map[string]any{"post": map[string]any{"id": x.ID, "course_id": x.CourseID, "title": x.Title, "body": x.Body, "image_urls": x.Images, "topic_tags": x.Tags, "attendance_year": x.Year, "attendance_year_label": label, "display_identity": x.Identity, "display_name": x.Name, "created_at": x.Created}})
+		_, _ = pool.Exec(r.Context(), `INSERT INTO post_view_events(post_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, id, viewer.ID)
+		writeJSON(w, 200, map[string]any{"post": map[string]any{
+			"id": x.ID, "course_id": x.CourseID, "title": x.Title, "body": x.Body,
+			"image_urls": nonNilStrings(x.Images), "topic_tags": nonNilStrings(x.Tags),
+			"attendance_year": x.Year, "attendance_year_label": label, "display_identity": x.Identity,
+			"display_name": x.Name, "created_at": x.Created, "liked_by_me": x.LikedByMe,
+			"bookmarked_by_me": x.BookmarkedByMe, "like_count": x.LikeCount, "comment_count": x.CommentCount,
+		}})
 	}))))
 	mux.Handle("POST /api/v1/admin/posts/{postID}/decision", authenticate(pool, requireModerator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(r.PathValue("postID"), 10, 64)
