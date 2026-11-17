@@ -25,7 +25,8 @@ export function CourseCatalog({ token, onOpenCourse }: Props) {
   const [debounced, setDebounced] = useState('');
   const [department, setDepartment] = useState('');
   const [sort, setSort] = useState<SortKey>('course');
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [semester, setSemester] = useState('');
+  const [pickerOpen, setPickerOpen] = useState<'department' | 'semester' | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 300);
@@ -42,12 +43,13 @@ export function CourseCatalog({ token, onOpenCourse }: Props) {
   });
 
   const catalog = useInfiniteQuery({
-    queryKey: ['catalog', debounced, department, sort],
+    queryKey: ['catalog', debounced, department, semester, sort],
     initialPageParam: 1,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ page: String(pageParam), page_size: '50', sort });
       if (debounced) params.set('q', debounced);
       if (department) params.set('department', department);
+      if (semester) params.set('semester', semester);
       const response = await apiFetch(`/api/v1/courses?${params.toString()}`, token);
       if (!response.ok) throw new Error('课程列表暂时无法加载');
       return (await response.json()) as CourseListResponse;
@@ -93,16 +95,20 @@ export function CourseCatalog({ token, onOpenCourse }: Props) {
           ) : null}
         </View>
 
-        <TouchableOpacity style={styles.deptSelect} onPress={() => setPickerOpen(true)}>
+        <TouchableOpacity style={styles.deptSelect} onPress={() => setPickerOpen('department')}>
           <Text style={styles.deptLabel}>专业</Text>
           <Text style={styles.deptValue}>{department || '全部专业'}</Text>
-          {department ? (
-            <TouchableOpacity onPress={() => setDepartment('')} hitSlop={10}>
-              <Text style={styles.clear}>全部</Text>
-            </TouchableOpacity>
-          ) : null}
           <Text style={styles.deptArrow}>⌄</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity style={styles.deptSelect} onPress={() => setPickerOpen('semester')}>
+          <Text style={styles.deptLabel}>学期</Text>
+          <Text style={styles.deptValue}>{semester || '全部学期'}</Text>
+          <Text style={styles.deptArrow}>⌄</Text>
+        </TouchableOpacity>
+        {facets.isError && <TouchableOpacity onPress={() => void facets.refetch()}>
+          <Text style={styles.muted}>筛选选项暂时无法加载，点击重试</Text>
+        </TouchableOpacity>}
 
         <Text style={styles.filterHeading}>排序</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
@@ -130,17 +136,21 @@ export function CourseCatalog({ token, onOpenCourse }: Props) {
         ) : catalog.error ? (
           <View style={styles.emptyCard}>
             <Text style={styles.cardTitle}>课程服务暂不可用</Text>
-            <Text style={styles.muted}>请确认后端正在运行，并检查手机与电脑是否在同一网络。</Text>
+            <Text style={styles.muted}>请检查网络后重试。</Text>
             <TouchableOpacity style={styles.primary} onPress={() => void catalog.refetch()}>
               <Text style={styles.primaryText}>重新加载</Text>
             </TouchableOpacity>
           </View>
         ) : courses.length === 0 ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.cardTitle}>{debounced ? '没有匹配的课程' : '这个专业还没有课程'}</Text>
+            <Text style={styles.cardTitle}>{debounced || department || semester ? '没有匹配的课程' : '课程目录暂无课程'}</Text>
             <Text style={styles.muted}>
-              {debounced ? `没有找到“${debounced}”，换个关键词试试。` : '课程导入后会出现在这里。'}
+              {debounced ? `没有找到“${debounced}”，可以换个关键词。` : '课程导入后会出现在这里。'}
             </Text>
+            {!!(query || department || semester) && <TouchableOpacity style={styles.primary}
+              onPress={() => { setQuery(''); setDebounced(''); setDepartment(''); setSemester(''); }}>
+              <Text style={styles.primaryText}>清除搜索和筛选</Text>
+            </TouchableOpacity>}
           </View>
         ) : (
           courses.map((course) => (
@@ -159,7 +169,7 @@ export function CourseCatalog({ token, onOpenCourse }: Props) {
                   {course.professor || '教授待补充'} · {course.department} · {course.credits} 学分
                 </Text>
                 <Text style={styles.meta}>
-                  评分 {course.rating.toFixed(1)} · {course.review_count} 条评价 · {course.post_count} 篇分享
+                  {course.review_count ? `评分 ${course.rating.toFixed(1)}` : '暂无评分'} · {course.review_count} 条评价 · {course.post_count} 篇分享
                 </Text>
               </View>
             </TouchableOpacity>
@@ -178,16 +188,19 @@ export function CourseCatalog({ token, onOpenCourse }: Props) {
       </ScrollView>
 
       <DepartmentPicker
-        visible={pickerOpen}
-        departments={facets.data?.departments ?? []}
-        current={department}
-        title="按专业筛选"
-        hint="选择「全部专业」可以查看所有课程。"
+        visible={pickerOpen !== null}
+        departments={pickerOpen === 'semester'
+          ? ['全部学期', ...(facets.data?.semesters ?? [])]
+          : ['全部专业', ...(facets.data?.departments ?? [])]}
+        title={pickerOpen === 'semester' ? '筛选学期' : '筛选专业'}
+        hint=""
+        current={pickerOpen === 'semester' ? semester || '全部学期' : department || '全部专业'}
         onSelect={(value) => {
-          setDepartment(value);
-          setPickerOpen(false);
+          if (pickerOpen === 'semester') setSemester(value === '全部学期' ? '' : value);
+          else setDepartment(value === '全部专业' ? '' : value);
+          setPickerOpen(null);
         }}
-        onClose={() => setPickerOpen(false)}
+        onClose={() => setPickerOpen(null)}
       />
     </View>
   );

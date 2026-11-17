@@ -4952,6 +4952,16 @@
           {
             "explode": false,
             "in": "query",
+            "name": "course_id",
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
             "name": "department",
             "schema": {
               "maxLength": 100,
@@ -5040,7 +5050,7 @@
             "bearer": []
           }
         ],
-        "summary": "按专业、话题与年份浏览经验帖",
+        "summary": "按课程、专业、话题与年份浏览经验帖",
         "tags": [
           "经验帖"
         ]
@@ -5699,6 +5709,20 @@
     "/api/v1/users/me/posts": {
       "get": {
         "operationId": "myPosts",
+        "parameters": [
+          {
+            "description": "仅返回该编号的本人内容",
+            "explode": false,
+            "in": "query",
+            "name": "id",
+            "schema": {
+              "description": "仅返回该编号的本人内容",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5735,6 +5759,20 @@
     "/api/v1/users/me/reviews": {
       "get": {
         "operationId": "myReviews",
+        "parameters": [
+          {
+            "description": "仅返回该编号的本人内容",
+            "explode": false,
+            "in": "query",
+            "name": "id",
+            "schema": {
+              "description": "仅返回该编号的本人内容",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

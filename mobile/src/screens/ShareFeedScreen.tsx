@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView, ActivityIndicator, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { apiBaseUrl, apiFetch } from '../../api';
-import type { CourseFacets, FeedOutput, FeedPost, TopicTagListResponse, UserProfile } from '../api/types';
+import type { Course, CourseFacets, FeedOutput, FeedPost, TopicTagListResponse, UserProfile } from '../api/types';
 import { DepartmentPicker } from '../ui/DepartmentPicker';
+import { CoursePicker } from '../ui/CoursePicker';
+import { AttendanceYearPicker } from '../ui/AttendanceYearPicker';
 import { colors } from '../ui/theme';
 
 type Props = {
@@ -20,6 +22,10 @@ export function ShareFeedScreen({ token, onOpenPost, onCompose }: Props) {
   const [tag, setTag] = useState('');
   const [sort, setSort] = useState<'newest' | 'popular'>('newest');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [year, setYear] = useState('');
+  const [course, setCourse] = useState<Course | null>(null);
+  const [yearPicker, setYearPicker] = useState(false);
+  const [coursePicker, setCoursePicker] = useState(false);
 
   const profile = useQuery({
     queryKey: ['profile'],
@@ -47,17 +53,29 @@ export function ShareFeedScreen({ token, onOpenPost, onCompose }: Props) {
   });
 
   useEffect(() => {
-    if (department === null && profile.data) setDepartment(profile.data.department ?? '');
-  }, [profile.data, department]);
+    if (department !== null) return;
+    if (profile.data) setDepartment(profile.data.department ?? '');
+    else if (profile.isError) setDepartment('');
+  }, [profile.data, profile.isError, department]);
+  const canCompose = profile.data?.status === 'verified';
+  const filtered = !!(department || tag || year || course);
+  const clearFilters = () => {
+    setDepartment('');
+    setTag('');
+    setYear('');
+    setCourse(null);
+  };
 
   const feed = useInfiniteQuery({
-    queryKey: ['feed', department, tag, sort],
+    queryKey: ['feed', department, tag, sort, year, course?.id],
     enabled: department !== null,
     initialPageParam: 1,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ page: String(pageParam), page_size: String(PAGE_SIZE), sort });
       if (department) params.set('department', department);
       if (tag) params.set('tag', tag);
+      if (year) params.set('year', year);
+      if (course) params.set('course_id', String(course.id));
       const response = await apiFetch(`/api/v1/posts?${params.toString()}`, token);
       if (!response.ok) throw new Error('读取经验帖失败');
       return (await response.json()) as FeedOutput;
@@ -88,9 +106,27 @@ export function ShareFeedScreen({ token, onOpenPost, onCompose }: Props) {
         <TouchableOpacity style={styles.departmentChip} onPress={() => setPickerOpen(true)}>
           <Text style={styles.departmentChipText}>{department ? department : ALL_DEPARTMENTS} ▾</Text>
         </TouchableOpacity>
-        <Text style={styles.countText}>{items.length ? `${items.length} 篇` : ''}</Text>
+        {filtered && <TouchableOpacity onPress={clearFilters}>
+          <Text style={styles.countText}>清除筛选</Text>
+        </TouchableOpacity>}
       </View>
 
+      <View style={[styles.filterRow, { flexWrap: 'wrap', gap: 8 }]}>
+        <TouchableOpacity style={styles.departmentChip} onPress={() => setCoursePicker(true)}>
+          <Text style={styles.departmentChipText}>{course?.course_code ?? '全部课程'} ▾</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.departmentChip} onPress={() => setYearPicker(true)}>
+          <Text style={styles.departmentChipText}>{year === 'unspecified' ? '年份未注明' : year || '全部年份'} ▾</Text>
+        </TouchableOpacity>
+      </View>
+      {(facets.isError || tags.isError || profile.isError) &&
+        <TouchableOpacity onPress={() => {
+          if (facets.isError) void facets.refetch();
+          if (tags.isError) void tags.refetch();
+          if (profile.isError) void profile.refetch();
+        }}>
+          <Text style={styles.countText}>部分页面信息暂不可用，点击重试</Text>
+        </TouchableOpacity>}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagRow}>
         {['', ...((tags.data?.items ?? []).map((item) => item.name))].map((name) => {
           const active = tag === name;
@@ -104,12 +140,14 @@ export function ShareFeedScreen({ token, onOpenPost, onCompose }: Props) {
     </View>
   );
 
-  const empty = !feed.isLoading && items.length === 0;
+  const waiting = department === null || feed.isPending;
 
   return (
     <View style={styles.container}>
       <FlatList
         data={items}
+        refreshing={feed.isRefetching && !feed.isFetchingNextPage}
+        onRefresh={() => { if (department !== null) void feed.refetch(); }}
         keyExtractor={(item) => String(item.id)}
         numColumns={2}
         columnWrapperStyle={styles.column}
@@ -118,31 +156,51 @@ export function ShareFeedScreen({ token, onOpenPost, onCompose }: Props) {
         renderItem={({ item }) => <FeedCard item={item} token={token} onPress={() => onOpenPost(item)} />}
         onEndReachedThreshold={0.4}
         onEndReached={() => {
-          if (feed.hasNextPage && !feed.isFetchingNextPage) void feed.fetchNextPage();
+          if (feed.hasNextPage && !feed.isFetching && !feed.isFetchNextPageError) void feed.fetchNextPage();
         }}
         ListEmptyComponent={
-          feed.isLoading ? (
+          waiting ? (
             <ActivityIndicator color={colors.green} style={{ marginTop: 36 }} />
           ) : feed.isError ? (
-            <Text style={styles.empty}>经验帖暂时无法加载，稍后再试。</Text>
-          ) : empty ? (
+            <TouchableOpacity onPress={() => void feed.refetch()}>
+              <Text style={styles.empty}>经验帖暂时无法加载，点击重试</Text>
+            </TouchableOpacity>
+          ) : (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyTitle}>{department ? `${department} 还没有经验帖` : '还没有经验帖'}</Text>
-              <Text style={styles.emptyBody}>写下第一篇修课经验，审核通过后会出现在这里。</Text>
-              <TouchableOpacity style={styles.primary} onPress={onCompose}>
-                <Text style={styles.primaryText}>写经验帖</Text>
-              </TouchableOpacity>
+              <Text style={styles.emptyTitle}>{filtered ? '没有符合筛选条件的经验帖' : '还没有经验帖'}</Text>
+              {filtered ? <TouchableOpacity style={styles.primary} onPress={clearFilters}>
+                <Text style={styles.primaryText}>清除筛选</Text>
+              </TouchableOpacity> : canCompose ? <>
+                <Text style={styles.emptyBody}>写下第一篇修课经验，审核通过后会出现在这里。</Text>
+                <TouchableOpacity style={styles.primary} onPress={onCompose}>
+                  <Text style={styles.primaryText}>写经验帖</Text>
+                </TouchableOpacity>
+              </> : null}
             </View>
-          ) : null
+          )
         }
         ListFooterComponent={
-          feed.isFetchingNextPage ? <ActivityIndicator color={colors.green} style={{ marginVertical: 18 }} /> : null
+          feed.isFetchingNextPage ? <ActivityIndicator color={colors.green} style={{ marginVertical: 18 }} /> :
+          feed.isFetchNextPageError ? <TouchableOpacity onPress={() => void feed.fetchNextPage()}>
+            <Text style={styles.empty}>更多经验帖暂时无法加载，点击重试</Text>
+          </TouchableOpacity> : null
         }
       />
-      <TouchableOpacity style={styles.fab} onPress={onCompose} accessibilityLabel="写经验帖">
+      {canCompose && <TouchableOpacity style={styles.fab} onPress={onCompose} accessibilityLabel="写经验帖">
         <Text style={styles.fabIcon}>＋</Text>
         <Text style={styles.fabText}>发帖</Text>
-      </TouchableOpacity>
+      </TouchableOpacity>}
+      <AttendanceYearPicker visible={yearPicker} value={year} allowAll onClose={() => setYearPicker(false)}
+        onChange={(value) => { setYear(value); setYearPicker(false); }} />
+      <Modal visible={coursePicker} onRequestClose={() => setCoursePicker(false)} animationType="slide">
+        {coursePicker && <SafeAreaView style={styles.courseModal}>
+          <TouchableOpacity style={styles.clearCourse} onPress={() => { setCourse(null); setCoursePicker(false); }}>
+            <Text style={styles.departmentChipText}>查看全部课程</Text>
+          </TouchableOpacity>
+          <CoursePicker token={token} onClose={() => setCoursePicker(false)}
+            onSelect={(value) => { setCourse(value); setCoursePicker(false); }} />
+        </SafeAreaView>}
+      </Modal>
       <DepartmentPicker
         visible={pickerOpen}
         departments={departmentOptions}
@@ -185,6 +243,7 @@ function FeedCard({ item, token, onPress }: { item: FeedPost; token: string; onP
           {item.body}
         </Text>
       )}
+      <Text style={styles.metaText}>{item.attendance_year_label}</Text>
       <View style={styles.cardMeta}>
         <Text style={styles.metaText} numberOfLines={1}>
           {item.course.course_code}
@@ -196,6 +255,8 @@ function FeedCard({ item, token, onPress }: { item: FeedPost; token: string; onP
 }
 
 const styles = StyleSheet.create({
+  courseModal: { flex: 1, backgroundColor: colors.paper },
+  clearCourse: { alignSelf: 'flex-start', padding: 16 },
   container: { flex: 1, backgroundColor: colors.paper },
   listContent: { paddingHorizontal: 16, paddingBottom: 110 },
   column: { gap: 12 },
@@ -217,7 +278,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   departmentChipText: { color: colors.green, fontSize: 12, fontWeight: '800' },
-  countText: { color: '#9aa39c', fontSize: 10 },
+  countText: { color: colors.green, fontSize: 13, paddingVertical: 8 },
   tagRow: { gap: 7, paddingVertical: 10 },
   tagChip: {
     borderRadius: 999,

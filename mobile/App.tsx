@@ -1,10 +1,12 @@
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CourseDetail } from './CourseDetail';
+import { confirmDiscard, type LeaveState } from './src/ui/unsavedChanges';
+import type { CourseDetailCourse } from './src/api/types';
 import { AdminScreen, NotificationsScreen, ProfileEditScreen } from './UserScreens';
-import { apiFetch, initApiBase } from './api';
+import { apiBaseUrl, apiFetch, fetchWithTimeout, initApiBase, isTimeoutError } from './api';
 import type { LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
 import { CourseCatalog } from './src/screens/CourseCatalog';
 import { ComposePostScreen } from './src/screens/ComposePostScreen';
@@ -18,6 +20,7 @@ import { colors } from './src/ui/theme';
 import {
   ActivityIndicator,
   BackHandler,
+  Keyboard,
   SafeAreaView,
   ScrollView,
   StatusBar as NativeStatusBar,
@@ -32,10 +35,10 @@ type Tab = 'home' | 'courses' | 'share' | 'notifications' | 'me';
 
 type Route =
   | { kind: 'course'; courseId: number }
-  | { kind: 'post'; postId: number; course: PostCoursePreview }
-  | { kind: 'list'; list: MyListKind }
+  | { kind: 'post'; postId: number; course?: PostCoursePreview }
+  | { kind: 'list'; list: MyListKind; focusId?: number }
   | { kind: 'admin' }
-  | { kind: 'compose' }
+  | { kind: 'compose'; course?: CourseDetailCourse }
   | { kind: 'edit'; edit: EditTarget };
 
 const tabs: { key: Tab; icon: string; label: string }[] = [
@@ -46,7 +49,6 @@ const tabs: { key: Tab; icon: string; label: string }[] = [
   { key: 'me', icon: '◉', label: '我的' },
 ];
 
-const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080').replace(/\/$/, '');
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, retry: 1 } } });
 
 function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) => Promise<void> }) {
@@ -57,22 +59,48 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const submit = async () => {
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now);
+  const resendIn = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  useEffect(() => {
+    if (mode !== 'verify' || resendIn === 0) return;
+    const timer = setTimeout(() => setNow(Date.now()), 1000);
+    return () => clearTimeout(timer);
+  }, [mode, resendIn, now]);
+
+  const submit = async (resend = false) => {
+    if (busy || (resend && resendIn > 0)) return;
     setBusy(true);
     setMessage('');
     try {
-      const path = mode === 'verify' ? 'verify' : mode;
+      const path = resend ? 'register' : mode;
       const body: LoginRequest | RegisterRequest | { email: string; code: string } =
-        mode === 'login' ? { email, password } : mode === 'register' ? { email, password, nickname } : { email, code };
-      const response = await fetch(`${apiBaseUrl}/api/v1/auth/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+        path === 'login' ? { email, password } : path === 'register' ? { email, password, nickname } : { email, code };
+      const response = await fetchWithTimeout(
+        `${apiBaseUrl}/api/v1/auth/${path}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        15000,
+      );
       const payload = (await response.json()) as LoginResponse & { error?: string; message?: string };
-      if (!response.ok) throw new Error(payload.error ?? '请求失败，请稍后再试');
+      if (!response.ok) {
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        if (resend && response.status === 429) {
+          const current = Date.now();
+          setNow(current);
+          setResendAt(current + (retryAfter > 0 ? retryAfter : 60) * 1000);
+        }
+        throw new Error(payload.error ?? '请求失败，请稍后再试');
+      }
       if (mode === 'login' && payload.access_token && payload.refresh_token) await onLogin(payload.access_token, payload.refresh_token);
-      else if (mode === 'register') {
+      else if (path === 'register') {
+        const current = Date.now();
+        setNow(current);
+        setResendAt(current + 60_000);
+        setCode('');
         setMode('verify');
         setMessage(payload.message ?? '验证码已发送');
       } else {
@@ -80,7 +108,7 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
         setMessage('邮箱验证完成，请登录');
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '暂时无法连接服务');
+      setMessage(isTimeoutError(error) ? '服务暂时未响应，请检查网络后重试' : error instanceof TypeError ? '无法连接服务，请检查网络后重试' : error instanceof Error ? error.message : '暂时无法连接服务');
     } finally {
       setBusy(false);
     }
@@ -93,12 +121,13 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
           <Text style={styles.markText}>C</Text>
         </View>
         <Text style={styles.authTitle}>{title}</Text>
-        <Text style={styles.authIntro}>使用学校允许的学生邮箱域名注册</Text>
+        <Text style={styles.authIntro}>{mode === 'verify' ? '验证码有效期为 10 分钟，也可检查垃圾邮件文件夹。' : '使用学校邮箱登录或注册'}</Text>
         <TextInput
           autoCapitalize="none"
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
+          editable={!busy && mode !== 'verify'}
           placeholder="学生邮箱"
           style={styles.authInput}
         />
@@ -116,6 +145,7 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
+          disabled={busy}
           onPress={() => {
             setMessage('');
             setMode(mode === 'login' ? 'register' : 'login');
@@ -125,9 +155,14 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
           <Text style={styles.authSwitch}>{mode === 'login' ? '还没有账号？注册' : '返回登录'}</Text>
         </TouchableOpacity>
         {mode === 'verify' && (
-          <TouchableOpacity onPress={() => setMode('register')}>
-            <Text style={styles.authSwitch}>修改注册信息</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity disabled={busy || resendIn > 0} onPress={() => void submit(true)} style={{ padding: 14 }}>
+              <Text style={styles.authSwitch}>{resendIn ? `${resendIn} 秒后可重发验证码` : '重新发送验证码'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={busy} onPress={() => { setMessage(''); setMode('register'); }} style={{ padding: 14 }}>
+              <Text style={styles.authSwitch}>修改注册信息</Text>
+            </TouchableOpacity>
+          </>
         )}
         <ServerField />
       </ScrollView>
@@ -144,52 +179,84 @@ export default function App() {
 }
 
 function AppShell() {
-  const [authLoaded, setAuthLoaded] = useState(false);
+  const [authState, setAuthState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [accessToken, setAccessToken] = useState('');
   const [tab, setTab] = useState<Tab>('home');
+  const [visited, setVisited] = useState<Tab[]>(['home']);
   const [routes, setRoutes] = useState<Route[]>([]);
+  const dirty = useRef<LeaveState>(false);
+  const setDirty = useCallback((value: LeaveState) => { dirty.current = value; }, []);
 
-  useEffect(() => {
-    void (async () => {
+  const restoreSession = useCallback(async () => {
+    setAuthState('loading');
+    try {
       await initApiBase();
-      let token = await SecureStore.getItemAsync('access_token');
+      const token = await SecureStore.getItemAsync('access_token');
       const refresh = await SecureStore.getItemAsync('refresh_token');
       if (token) {
-        const response = await fetch(`${apiBaseUrl}/api/v1/auth/me`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
-        if (!response?.ok && refresh) {
-          const renewed = await fetch(`${apiBaseUrl}/api/v1/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refresh_token: refresh }),
-          }).catch(() => null);
-          if (renewed?.ok) {
-            const session = (await renewed.json()) as { access_token: string; refresh_token: string };
-            token = session.access_token;
-            await SecureStore.setItemAsync('access_token', session.access_token);
-            await SecureStore.setItemAsync('refresh_token', session.refresh_token);
-          } else token = null;
-        } else if (!response?.ok) token = null;
+        const response = await fetchWithTimeout(`${apiBaseUrl}/api/v1/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          setAccessToken(token);
+          setAuthState('ready');
+          return;
+        }
+        if (response.status !== 401 && response.status !== 403) throw new Error('Session check failed');
       }
-      setAccessToken(token ?? '');
-      setAuthLoaded(true);
-    })();
+      if (refresh) {
+        const response = await fetchWithTimeout(`${apiBaseUrl}/api/v1/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refresh }),
+        });
+        if (response.ok) {
+          const session = (await response.json()) as LoginResponse;
+          await SecureStore.setItemAsync('access_token', session.access_token);
+          await SecureStore.setItemAsync('refresh_token', session.refresh_token);
+          setAccessToken(session.access_token);
+        } else if (response.status === 401 || response.status === 403) {
+          await SecureStore.deleteItemAsync('access_token');
+          await SecureStore.deleteItemAsync('refresh_token');
+        } else {
+          throw new Error('Session refresh failed');
+        }
+      } else if (token) {
+        await SecureStore.deleteItemAsync('access_token');
+      }
+      setAuthState('ready');
+    } catch {
+      setAuthState('unavailable');
+    }
   }, []);
 
-  // 安卓返回键 / 侧边滑动：先逐层返回，再回到首页，只有首页才允许退出应用。
+  useEffect(() => { void restoreSession(); }, [restoreSession]);
+
+  const activateTab = useCallback((next: Tab) => {
+    setVisited((previous) => previous.includes(next) ? previous : [...previous, next]);
+    setTab(next);
+  }, []);
+
+  const pop = useCallback(() => {
+    Keyboard.dismiss();
+    setRoutes((previous) => previous.slice(0, -1));
+  }, []);
+  const back = useCallback(() => confirmDiscard(dirty.current, pop), [pop]);
+
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (routes.length > 0) {
-        setRoutes((prev) => prev.slice(0, -1));
+        back();
         return true;
       }
       if (tab !== 'home') {
-        setTab('home');
+        activateTab('home');
         return true;
       }
       return false;
     });
     return () => subscription.remove();
-  }, [routes.length, tab]);
+  }, [routes.length, tab, back, activateTab]);
 
   const handleLogin = useCallback(async (token: string, refresh: string) => {
     queryClient.clear();
@@ -197,130 +264,160 @@ function AppShell() {
     await SecureStore.setItemAsync('refresh_token', refresh);
     setAccessToken(token);
     setTab('home');
+    setVisited(['home']);
     setRoutes([]);
   }, []);
 
   const handleLogout = useCallback(async () => {
     const refresh = await SecureStore.getItemAsync('refresh_token');
     if (refresh)
-      await fetch(`${apiBaseUrl}/api/v1/auth/logout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refresh }),
-      }).catch(() => null);
+      await fetchWithTimeout(
+        `${apiBaseUrl}/api/v1/auth/logout`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refresh }),
+        },
+        5000,
+      ).catch(() => null);
     await SecureStore.deleteItemAsync('access_token');
     await SecureStore.deleteItemAsync('refresh_token');
     queryClient.clear();
     setAccessToken('');
     setRoutes([]);
     setTab('home');
+    setVisited(['home']);
   }, []);
 
-  const push = (route: Route) => setRoutes((prev) => [...prev, route]);
-  const pop = () => setRoutes((prev) => prev.slice(0, -1));
+  const push = (route: Route) => {
+    Keyboard.dismiss();
+    setRoutes((previous) => [...previous, route]);
+  };
   const openCourse = (courseId: number) => push({ kind: 'course', courseId });
 
-  if (!authLoaded)
+  if (authState === 'loading')
     return (
       <SafeAreaView style={styles.safe}>
         <ActivityIndicator color={colors.green} style={{ marginTop: 40 }} />
       </SafeAreaView>
     );
-  if (!accessToken) return <AuthScreen onLogin={handleLogin} />;
-
-  const top = routes[routes.length - 1];
-  let body: React.ReactNode;
-  if (top?.kind === 'course') {
-    body = <CourseDetail courseId={top.courseId} token={accessToken} onBack={pop} />;
-  } else if (top?.kind === 'post') {
-    body = (
-      <PostDetailScreen
-        token={accessToken}
-        postId={top.postId}
-        course={top.course}
-        onBack={pop}
-        onOpenCourse={openCourse}
-      />
-    );
-  } else if (top?.kind === 'admin') {
-    body = <AdminScreen token={accessToken} role="admin" onBack={pop} />;
-  } else if (top?.kind === 'edit') {
-    body = (
-      <ProfileEditScreen
-        token={accessToken}
-        edit={top.edit}
-        onBack={pop}
-        onSaved={async () => {
-          pop();
-          await queryClient.invalidateQueries({ queryKey: ['my-reviews'] });
-          await queryClient.invalidateQueries({ queryKey: ['my-posts'] });
-        }}
-      />
-    );
-  } else if (top?.kind === 'list') {
-    body = (
-      <MyListScreen
-        token={accessToken}
-        kind={top.list}
-        onBack={pop}
-        onEdit={(edit) => push({ kind: 'edit', edit })}
-        onOpenBookmark={(item) => push({ kind: 'post', postId: item.id, course: item })}
-      />
-    );
-  } else if (top?.kind === 'compose') {
-    body = <ComposePostScreen token={accessToken} onClose={pop} onPublished={pop} />;
-  } else if (tab === 'courses') {
-    body = <CourseCatalog token={accessToken} onOpenCourse={(course) => openCourse(course.id)} />;
-  } else if (tab === 'share') {
-    body = (
-      <ShareFeedScreen
-        token={accessToken}
-        onOpenPost={(post) => push({ kind: 'post', postId: post.id, course: post.course })}
-        onCompose={() => push({ kind: 'compose' })}
-      />
-    );
-  } else if (tab === 'notifications') {
-    body = <NotificationsScreen token={accessToken} onBack={() => setTab('home')} />;
-  } else if (tab === 'me') {
-    body = (
-      <MeScreen
-        token={accessToken}
-        onLogout={() => void handleLogout()}
-        onOpenList={(list) => push({ kind: 'list', list })}
-        onOpenAdmin={() => push({ kind: 'admin' })}
-      />
-    );
-  } else {
-    body = (
-      <HomeScreen
-        token={accessToken}
-        onOpenCourse={(course) => openCourse(course.id)}
-        onOpenPost={(post) => push({ kind: 'post', postId: post.id, course: post.course })}
-      />
+  if (authState === 'unavailable') {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.placeholder}>
+          <Text style={styles.placeholderTitle}>暂时无法恢复登录</Text>
+          <Text style={styles.placeholderBody}>请检查网络连接后重试。</Text>
+          <TouchableOpacity style={styles.primary} onPress={() => void restoreSession()}>
+            <Text style={styles.primaryText}>重试</Text>
+          </TouchableOpacity>
+          <ServerField />
+        </View>
+      </SafeAreaView>
     );
   }
+  if (!accessToken) return <AuthScreen onLogin={handleLogin} />;
+
+  const chooseTab = (next: Tab) => {
+    if (next === tab && routes.length === 0) return;
+    confirmDiscard(dirty.current, () => {
+      Keyboard.dismiss();
+      setRoutes([]);
+      activateTab(next);
+    });
+  };
+
+  const openPost = (postId: number, course?: PostCoursePreview) => push({ kind: 'post', postId, course });
+
+  const renderRoute = (route: Route) => {
+    switch (route.kind) {
+      case 'course':
+        return <CourseDetail courseId={route.courseId} token={accessToken} onBack={back}
+          onCompose={(course) => push({ kind: 'compose', course })} onDirtyChange={setDirty} />;
+      case 'post':
+        return <PostDetailScreen token={accessToken} postId={route.postId} course={route.course}
+          onBack={back} onOpenCourse={openCourse} />;
+      case 'admin':
+        return <AdminScreen token={accessToken} role="admin" onBack={back} />;
+      case 'edit':
+        return <ProfileEditScreen token={accessToken} edit={route.edit} onBack={back} onDirtyChange={setDirty}
+          onSaved={async () => {
+            pop();
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['my-reviews'] }),
+              queryClient.invalidateQueries({ queryKey: ['my-posts'] }),
+              queryClient.invalidateQueries({ queryKey: ['posts'] }),
+              queryClient.invalidateQueries({ queryKey: ['reviews'] }),
+              queryClient.invalidateQueries({ queryKey: ['course'] }),
+              queryClient.invalidateQueries({ queryKey: ['catalog'] }),
+              queryClient.invalidateQueries({ queryKey: ['post-detail'] }),
+              queryClient.invalidateQueries({ queryKey: ['feed'] }),
+              queryClient.invalidateQueries({ queryKey: ['home'] }),
+            ]);
+          }} />;
+      case 'list':
+        return <MyListScreen token={accessToken} kind={route.list} focusId={route.focusId} onBack={back}
+          onEdit={(edit) => push({ kind: 'edit', edit })}
+          onOpenBookmark={(item) => openPost(item.id, item)} />;
+      case 'compose':
+        return <ComposePostScreen token={accessToken} initialCourse={route.course} onClose={back}
+          onPublished={pop} onDirtyChange={setDirty} />;
+    }
+  };
+
+  const renderTab = (current: Tab) => {
+    switch (current) {
+      case 'courses':
+        return <CourseCatalog token={accessToken} onOpenCourse={(course) => openCourse(course.id)} />;
+      case 'share':
+        return <ShareFeedScreen token={accessToken} onOpenPost={(post) => openPost(post.id, post.course)}
+          onCompose={() => push({ kind: 'compose' })} />;
+      case 'notifications':
+        return <NotificationsScreen token={accessToken} active={tab === current && routes.length === 0} onBack={() => activateTab('home')} onOpenPost={openPost}
+          onOpenOwnContent={(list, focusId) => push({ kind: 'list', list, focusId })} />;
+      case 'me':
+        return <MeScreen token={accessToken} onLogout={() => void handleLogout()}
+          onOpenList={(list) => push({ kind: 'list', list })}
+          onOpenAdmin={() => push({ kind: 'admin' })} />;
+      case 'home':
+        return <HomeScreen token={accessToken} onOpenCourse={(course) => openCourse(course.id)}
+          onOpenPost={(post) => openPost(post.id, post.course)} />;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
       <View style={styles.screen}>
-        {routes.length === 0 && (
-          <View style={styles.topbar}>
-            <View style={styles.brand}>
-              <View style={styles.mark}>
-                <Text style={styles.markText}>C</Text>
+        <View style={styles.body}>
+          <ScreenLayer visible={routes.length === 0}>
+            <View style={styles.topbar}>
+              <View style={styles.brand}>
+                <View style={styles.mark}>
+                  <Text style={styles.markText}>C</Text>
+                </View>
+                <View>
+                  <Text style={styles.brandName}>CourseRep</Text>
+                  <Text style={styles.brandCaption}>CITYU · 课程经验社区</Text>
+                </View>
               </View>
-              <View>
-                <Text style={styles.brandName}>CourseRep</Text>
-                <Text style={styles.brandCaption}>CITYU · 课程经验社区</Text>
-              </View>
+              <TouchableOpacity accessibilityLabel="通知" style={styles.bell} onPress={() => chooseTab('notifications')}>
+                <Text style={styles.bellText}>♧</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity accessibilityLabel="通知" style={styles.bell} onPress={() => setTab('notifications')}>
-              <Text style={styles.bellText}>♧</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        <View style={styles.body}>{body}</View>
+            <View style={styles.body}>
+              {visited.map((current) => (
+                <ScreenLayer key={current} visible={tab === current}>
+                  {renderTab(current)}
+                </ScreenLayer>
+              ))}
+            </View>
+          </ScreenLayer>
+          {routes.map((route, index) => (
+            <ScreenLayer key={`${index}-${route.kind}`} visible={index === routes.length - 1}>
+              {renderRoute(route)}
+            </ScreenLayer>
+          ))}
+        </View>
         <View style={styles.bottomNav}>
           {tabs.map((item) => {
             const active = routes.length === 0 && tab === item.key;
@@ -328,10 +425,7 @@ function AppShell() {
               <TouchableOpacity
                 key={item.key}
                 style={styles.navItem}
-                onPress={() => {
-                  setRoutes([]);
-                  setTab(item.key);
-                }}
+                onPress={() => chooseTab(item.key)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
               >
@@ -343,6 +437,17 @@ function AppShell() {
         </View>
       </View>
     </SafeAreaView>
+  );
+}
+
+function ScreenLayer({ visible, children }: { visible: boolean; children: React.ReactNode }) {
+  return (
+    <View style={[StyleSheet.absoluteFill, !visible && { opacity: 0 }]}
+      pointerEvents={visible ? 'auto' : 'none'}
+      accessibilityElementsHidden={!visible}
+      importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}>
+      {children}
+    </View>
   );
 }
 

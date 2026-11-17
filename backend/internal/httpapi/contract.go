@@ -739,7 +739,8 @@ func newContractAPI(dispatch ...http.Handler) (http.Handler, *huma.OpenAPI) {
 	}) (*contractHomeOutput, error) {
 		return &contractHomeOutput{}, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "listFeedPosts", Method: http.MethodGet, Path: "/api/v1/posts", Summary: "按专业、话题与年份浏览经验帖", Tags: []string{"经验帖"}, Security: secured}, func(context.Context, *struct {
+	huma.Register(api, huma.Operation{OperationID: "listFeedPosts", Method: http.MethodGet, Path: "/api/v1/posts", Summary: "按课程、专业、话题与年份浏览经验帖", Tags: []string{"经验帖"}, Security: secured}, func(context.Context, *struct {
+		CourseID   int64  `query:"course_id" minimum:"1"`
 		Department string `query:"department" maxLength:"100"`
 		Tag        string `query:"tag" maxLength:"40"`
 		Year       string `query:"year" doc:"年份筛选，可传具体年份或 unspecified"`
@@ -829,10 +830,14 @@ func newContractAPI(dispatch ...http.Handler) (http.Handler, *huma.OpenAPI) {
 	}) (*struct{}, error) {
 		return nil, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "myReviews", Method: http.MethodGet, Path: "/api/v1/users/me/reviews", Summary: "查看自己的评价及审核状态", Tags: []string{"个人"}, Security: secured}, func(context.Context, *struct{}) (*contractOwnReviewListOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "myReviews", Method: http.MethodGet, Path: "/api/v1/users/me/reviews", Summary: "查看自己的评价及审核状态", Tags: []string{"个人"}, Security: secured}, func(context.Context, *struct {
+		ID int64 `query:"id" minimum:"1" doc:"仅返回该编号的本人内容"`
+	}) (*contractOwnReviewListOutput, error) {
 		return &contractOwnReviewListOutput{}, nil
 	})
-	huma.Register(api, huma.Operation{OperationID: "myPosts", Method: http.MethodGet, Path: "/api/v1/users/me/posts", Summary: "查看自己的经验帖及审核状态", Tags: []string{"个人"}, Security: secured}, func(context.Context, *struct{}) (*contractOwnPostListOutput, error) {
+	huma.Register(api, huma.Operation{OperationID: "myPosts", Method: http.MethodGet, Path: "/api/v1/users/me/posts", Summary: "查看自己的经验帖及审核状态", Tags: []string{"个人"}, Security: secured}, func(context.Context, *struct {
+		ID int64 `query:"id" minimum:"1" doc:"仅返回该编号的本人内容"`
+	}) (*contractOwnPostListOutput, error) {
 		return &contractOwnPostListOutput{}, nil
 	})
 	huma.Register(api, huma.Operation{OperationID: "myBookmarks", Method: http.MethodGet, Path: "/api/v1/users/me/bookmarks", Summary: "查看自己的收藏", Tags: []string{"个人"}, Security: secured}, func(context.Context, *struct{}) (*contractBookmarkListOutput, error) {

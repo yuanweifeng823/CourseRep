@@ -17,11 +17,13 @@ export function DepartmentPicker({ visible, departments, current, title, hint, o
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={styles.title}>{title ?? '选择专业'}</Text>
-          <Text style={styles.hint}>{hint ?? '首页与课程页会按专业展示内容，之后可以在「我的」里修改。'}</Text>
+          {hint !== '' && <Text style={styles.hint}>{hint ?? '首页与课程页会按专业展示内容，之后可以在「我的」里修改。'}</Text>}
           <ScrollView style={{ maxHeight: 380 }}>
             {departments.map((item) => (
               <TouchableOpacity
                 key={item}
+                accessibilityRole="button"
+                accessibilityState={{ selected: current === item }}
                 style={[styles.row, current === item && styles.rowActive]}
                 onPress={() => onSelect(item)}
               >
@@ -29,7 +31,7 @@ export function DepartmentPicker({ visible, departments, current, title, hint, o
                 {current === item ? <Text style={styles.check}>✓</Text> : null}
               </TouchableOpacity>
             ))}
-            {departments.length === 0 ? <Text style={styles.empty}>暂时没有可选专业</Text> : null}
+            {departments.length === 0 ? <Text style={styles.empty}>暂无可选项</Text> : null}
           </ScrollView>
           <TouchableOpacity style={styles.close} onPress={onClose}>
             <Text style={styles.closeText}>取消</Text>

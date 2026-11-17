@@ -16,6 +16,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiBaseUrl, apiFetch } from '../../api';
 import type { CommentListResponse, Course, PostDetailResponse } from '../api/types';
 import { colors } from '../ui/theme';
+import { ReportButton } from '../../CourseDetail';
+import type { CourseDetailResponse, UserProfile } from '../api/types';
 
 export type PostCoursePreview = Pick<Course, 'course_code' | 'course_name'> &
   Partial<Pick<Course, 'department' | 'semester'>>;
@@ -23,7 +25,7 @@ export type PostCoursePreview = Pick<Course, 'course_code' | 'course_name'> &
 type Props = {
   token: string;
   postId: number;
-  course: PostCoursePreview;
+  course?: PostCoursePreview;
   onBack: () => void;
   onOpenCourse: (courseId: number) => void;
 };
@@ -99,12 +101,31 @@ export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }
   const commentItems = comments.data?.items ?? [];
   const liked = post?.liked_by_me;
   const bookmarked = post?.bookmarked_by_me;
-  const courseMeta = [course.department, course.semester].filter(Boolean).join(' · ');
+  const courseDetail = useQuery({
+    queryKey: ['course', post?.course_id],
+    enabled: !course && !!post,
+    queryFn: async () => {
+      const response = await apiFetch(`/api/v1/courses/${post?.course_id}`, token);
+      if (!response.ok) throw new Error('课程暂不可用');
+      return (await response.json()) as CourseDetailResponse;
+    },
+  });
+  const profile = useQuery({
+    queryKey: ['profile'],
+    queryFn: async () => {
+      const response = await apiFetch('/api/v1/users/me', token);
+      if (!response.ok) throw new Error('读取账号状态失败');
+      return (await response.json()) as UserProfile;
+    },
+  });
+  const canInteract = profile.data?.status === 'verified';
+  const associatedCourse = course ?? courseDetail.data?.course;
+  const courseMeta = [associatedCourse?.department, associatedCourse?.semester].filter(Boolean).join(' · ');
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} accessibilityLabel="返回">
+        <TouchableOpacity onPress={onBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="返回">
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>经验帖</Text>
@@ -115,7 +136,7 @@ export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>{post.title}</Text>
         <Text style={styles.meta}>
-          {post.display_name} · {post.created_at.slice(0, 10)} · 修读年份：{post.attendance_year_label}
+          {post.display_name} · {post.created_at.slice(0, 10)} · {post.attendance_year_label}
         </Text>
 
         {(post.image_urls ?? []).map((uri) => (
@@ -142,9 +163,9 @@ export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }
         <TouchableOpacity style={styles.courseCard} onPress={() => onOpenCourse(post.course_id)} activeOpacity={0.85}>
           <View style={{ flex: 1 }}>
             <Text style={styles.courseLabel}>关联课程</Text>
-            <Text style={styles.courseCode}>{course.course_code}</Text>
+            <Text style={styles.courseCode}>{associatedCourse?.course_code ?? '查看课程详情'}</Text>
             <Text style={styles.courseName} numberOfLines={1}>
-              {course.course_name}
+              {associatedCourse?.course_name}
             </Text>
             {courseMeta ? <Text style={styles.courseMeta}>{courseMeta}</Text> : null}
           </View>
@@ -152,7 +173,9 @@ export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }
         </TouchableOpacity>
 
         <View style={styles.actionRow}>
-          <TouchableOpacity
+          {canInteract && <><TouchableOpacity
+            accessibilityRole="button" accessibilityLabel={liked ? `取消点赞，${post.like_count} 个赞` : `点赞，${post.like_count} 个赞`}
+            accessibilityState={{ selected: liked === true }}
             style={[styles.action, liked && styles.actionActive]}
             disabled={interaction.isPending || detail.isFetching || typeof liked !== 'boolean'}
             onPress={() => interaction.mutate({ kind: 'like', active: liked === true })}
@@ -161,24 +184,31 @@ export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }
             <Text style={[styles.actionText, liked && styles.actionTextActive]}>{post.like_count ?? '—'}</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            accessibilityRole="button" accessibilityLabel={bookmarked ? '取消收藏' : '收藏'}
+            accessibilityState={{ selected: bookmarked === true }}
             style={[styles.action, bookmarked && styles.actionActive]}
             disabled={interaction.isPending || detail.isFetching || typeof bookmarked !== 'boolean'}
             onPress={() => interaction.mutate({ kind: 'bookmark', active: bookmarked === true })}
           >
             <Text style={[styles.actionIcon, bookmarked && styles.actionTextActive]}>{bookmarked ? '★' : '☆'}</Text>
             <Text style={[styles.actionText, bookmarked && styles.actionTextActive]}>收藏</Text>
-          </TouchableOpacity>
+          </TouchableOpacity></>}
           <View style={styles.action}>
             <Text style={styles.actionIcon}>💬</Text>
             <Text style={styles.actionText}>{post.comment_count ?? commentItems.length}</Text>
           </View>
         </View>
 
+        {canInteract && <ReportButton token={token} target="post" id={postId} />}
+        {profile.data?.status === 'alumni_readonly' && <Text style={styles.emptyText}>校友账号可浏览帖子和评论。</Text>}
+        {profile.isError && <TouchableOpacity onPress={() => void profile.refetch()}>
+          <Text style={styles.emptyText}>账号状态暂不可用，点击重试</Text>
+        </TouchableOpacity>}
         <Text style={styles.sectionTitle}>评论 {post.comment_count ?? commentItems.length}</Text>
         {comments.isLoading ? (
           <ActivityIndicator color={colors.green} style={{ marginVertical: 16 }} />
         ) : comments.isError ? (
-          <Text style={styles.emptyText}>评论暂时无法加载</Text>
+          <TouchableOpacity onPress={() => void comments.refetch()}><Text style={styles.emptyText}>评论暂时无法加载，点击重试</Text></TouchableOpacity>
         ) : commentItems.length === 0 ? (
           <Text style={styles.emptyText}>还没有评论，来说两句。</Text>
         ) : (
@@ -200,7 +230,7 @@ export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }
 
       </ScrollView>
 
-      <View style={styles.composerRow}>
+      {canInteract && <View style={styles.composerRow}>
         <TextInput
           value={comment}
           onChangeText={setComment}
@@ -213,7 +243,7 @@ export function PostDetailScreen({ token, postId, course, onBack, onOpenCourse }
         <TouchableOpacity style={[styles.sendButton, (!comment.trim() || sending) && styles.sendDisabled]} onPress={() => void submitComment()} disabled={!comment.trim() || sending}>
           <Text style={styles.sendText}>{sending ? '…' : '发送'}</Text>
         </TouchableOpacity>
-      </View>
+      </View>}
       </> : detail.isPending ? (
         <ActivityIndicator color={colors.green} style={{ marginTop: 24 }} />
       ) : (

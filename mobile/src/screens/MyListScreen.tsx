@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { apiFetch } from '../../api';
@@ -27,12 +28,16 @@ const titles: Record<MyListKind, string> = {
 type Props = {
   token: string;
   kind: MyListKind;
+  focusId?: number;
   onBack: () => void;
   onEdit: (target: EditTarget) => void;
   onOpenBookmark: (item: Bookmark) => void;
 };
 
-export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Props) {
+export function MyListScreen({ token, kind, focusId, onBack, onEdit, onOpenBookmark }: Props) {
+  const [showAll, setShowAll] = useState(false);
+  const selectedId = showAll ? undefined : focusId;
+  const suffix = selectedId === undefined ? '' : `?id=${selectedId}`;
   const courses = useQuery({
     queryKey: ['my-courses'],
     enabled: kind === 'courses',
@@ -43,19 +48,19 @@ export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Pr
     },
   });
   const reviews = useQuery({
-    queryKey: ['my-reviews'],
+    queryKey: selectedId === undefined ? ['my-reviews'] : ['my-reviews', selectedId],
     enabled: kind === 'reviews',
     queryFn: async () => {
-      const response = await apiFetch('/api/v1/users/me/reviews', token);
+      const response = await apiFetch(`/api/v1/users/me/reviews${suffix}`, token);
       if (!response.ok) throw new Error();
       return ((await response.json()) as OwnReviewListResponse).items ?? [];
     },
   });
   const posts = useQuery({
-    queryKey: ['my-posts'],
+    queryKey: selectedId === undefined ? ['my-posts'] : ['my-posts', selectedId],
     enabled: kind === 'posts',
     queryFn: async () => {
-      const response = await apiFetch('/api/v1/users/me/posts', token);
+      const response = await apiFetch(`/api/v1/users/me/posts${suffix}`, token);
       if (!response.ok) throw new Error();
       return ((await response.json()) as OwnPostListResponse).items ?? [];
     },
@@ -70,8 +75,12 @@ export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Pr
     },
   });
 
-  const loading = courses.isLoading || reviews.isLoading || posts.isLoading || bookmarks.isLoading;
-  const failed = courses.error || reviews.error || posts.error || bookmarks.error;
+  const currentQuery = { courses, reviews, posts, bookmarks }[kind];
+  const loading = currentQuery.isPending;
+  const failed = currentQuery.isError;
+  const showFocused = selectedId !== undefined;
+  const reviewItems = reviews.data?.filter((item) => !showFocused || item.id === focusId) ?? [];
+  const postItems = posts.data?.filter((item) => !showFocused || item.id === focusId) ?? [];
 
   return (
     <View style={styles.screen}>
@@ -83,8 +92,13 @@ export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Pr
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         {loading ? <ActivityIndicator color={colors.green} style={{ marginTop: 30 }} /> : null}
-        {failed ? <Text style={styles.empty}>暂时无法加载，请稍后再试</Text> : null}
-        {kind === 'courses' &&
+        {failed && <TouchableOpacity onPress={() => void currentQuery.refetch()}>
+          <Text style={styles.empty}>暂时无法加载，点击重试</Text>
+        </TouchableOpacity>}
+        {showFocused && !loading && !failed && <TouchableOpacity onPress={() => setShowAll(true)}>
+          <Text style={styles.link}>查看全部{kind === 'reviews' ? '评价' : '经验帖'}</Text>
+        </TouchableOpacity>}
+        {!loading && !failed && kind === 'courses' &&
           (courses.data?.length ? (
             courses.data.map((item: CompletedCourse) => (
               <View key={item.id} style={styles.card}>
@@ -99,9 +113,9 @@ export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Pr
           ) : (
             <Text style={styles.empty}>还没有标记已修读课程，可在课程详情页添加</Text>
           ))}
-        {kind === 'reviews' &&
-          (reviews.data?.length ? (
-            reviews.data.map((item: OwnReview) => (
+        {!loading && !failed && kind === 'reviews' &&
+          (reviewItems.length ? (
+            reviewItems.map((item: OwnReview) => (
               <View key={item.id} style={styles.card}>
                 <Text style={styles.title}>
                   {item.course_code} · {item.course_name}
@@ -121,11 +135,11 @@ export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Pr
               </View>
             ))
           ) : (
-            <Text style={styles.empty}>还没有提交过评价</Text>
+            <Text style={styles.empty}>{showFocused ? '暂时无法找到这条评价' : '还没有提交过评价'}</Text>
           ))}
-        {kind === 'posts' &&
-          (posts.data?.length ? (
-            posts.data.map((item: OwnPost) => (
+        {!loading && !failed && kind === 'posts' &&
+          (postItems.length ? (
+            postItems.map((item: OwnPost) => (
               <View key={item.id} style={styles.card}>
                 <Text style={styles.title}>{item.title}</Text>
                 <Text style={styles.meta}>
@@ -142,9 +156,9 @@ export function MyListScreen({ token, kind, onBack, onEdit, onOpenBookmark }: Pr
               </View>
             ))
           ) : (
-            <Text style={styles.empty}>还没有发布过经验帖</Text>
+            <Text style={styles.empty}>{showFocused ? '暂时无法找到这篇经验帖' : '还没有发布过经验帖'}</Text>
           ))}
-        {kind === 'bookmarks' &&
+        {!loading && !failed && kind === 'bookmarks' &&
           (bookmarks.data?.length ? (
             bookmarks.data.map((item: Bookmark) => (
               <TouchableOpacity

@@ -178,6 +178,18 @@ func queryInt(r *http.Request, key string, fallback, min, max int) (int, error) 
 	return n, nil
 }
 
+func queryOptionalID(r *http.Request, key string) (int64, error) {
+	value := r.URL.Query().Get(key)
+	if value == "" {
+		return 0, nil
+	}
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id < 1 {
+		return 0, fmt.Errorf("invalid %s", key)
+	}
+	return id, nil
+}
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)

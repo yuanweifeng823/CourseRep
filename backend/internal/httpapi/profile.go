@@ -119,7 +119,12 @@ func registerProfileRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	}))))
 	mux.Handle("GET /api/v1/users/me/reviews", authenticate(pool, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := userFromContext(r.Context())
-		rows, e := pool.Query(r.Context(), `SELECT r.id,r.status,r.semester,r.grading,r.workload,r.assessment,r.usefulness,r.tags,r.body,r.created_at,c.id,c.course_code,c.course_name FROM course_reviews r JOIN courses c ON c.id=r.course_id WHERE r.author_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 100`, u.ID)
+		id, err := queryOptionalID(r, "id")
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": "内容编号无效"})
+			return
+		}
+		rows, e := pool.Query(r.Context(), `SELECT r.id,r.status,r.semester,r.grading,r.workload,r.assessment,r.usefulness,r.tags,r.body,r.created_at,c.id,c.course_code,c.course_name FROM course_reviews r JOIN courses c ON c.id=r.course_id WHERE r.author_id=$1 AND ($2::bigint=0 OR r.id=$2) ORDER BY r.created_at DESC,r.id DESC LIMIT 100`, u.ID, id)
 		if e != nil {
 			writeJSON(w, 500, map[string]string{"error": "读取我的评价失败"})
 			return
@@ -153,7 +158,12 @@ func registerProfileRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	})))
 	mux.Handle("GET /api/v1/users/me/posts", authenticate(pool, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := userFromContext(r.Context())
-		rows, e := pool.Query(r.Context(), `SELECT p.id,p.course_id,c.course_code,c.course_name,p.title,p.body,p.image_urls,p.topic_tags,p.attendance_year,p.status,p.display_identity,p.created_at FROM course_posts p JOIN courses c ON c.id=p.course_id WHERE p.author_id=$1 ORDER BY p.created_at DESC,p.id DESC LIMIT 100`, u.ID)
+		id, err := queryOptionalID(r, "id")
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": "内容编号无效"})
+			return
+		}
+		rows, e := pool.Query(r.Context(), `SELECT p.id,p.course_id,c.course_code,c.course_name,p.title,p.body,p.image_urls,p.topic_tags,p.attendance_year,p.status,p.display_identity,p.created_at FROM course_posts p JOIN courses c ON c.id=p.course_id WHERE p.author_id=$1 AND ($2::bigint=0 OR p.id=$2) ORDER BY p.created_at DESC,p.id DESC LIMIT 100`, u.ID, id)
 		if e != nil {
 			writeJSON(w, 500, map[string]string{"error": "读取我的帖子失败"})
 			return

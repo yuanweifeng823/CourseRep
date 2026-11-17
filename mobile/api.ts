@@ -23,6 +23,21 @@ export function normalizeServer(value: string): string | null {
   }
 }
 
+// 带超时的 fetch：地址不可达时 SYN 可能被静默丢弃，没有超时会让界面无限等待。
+export async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function isTimeoutError(error: unknown): boolean {
+  return !!error && typeof error === 'object' && (error as { name?: string }).name === 'AbortError';
+}
+
 export async function initApiBase(): Promise<void> {
   try {
     const saved = await SecureStore.getItemAsync(SERVER_KEY);
@@ -57,17 +72,19 @@ export async function resetApiBase(): Promise<void> {
 async function renewSession(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
-    const refresh = await SecureStore.getItemAsync('refresh_token');
-    if (!refresh) return null;
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/auth/refresh`, {
+      const refresh = await SecureStore.getItemAsync('refresh_token');
+      if (!refresh) return null;
+      const response = await fetchWithTimeout(`${apiBaseUrl}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refresh }),
       });
       if (!response.ok) {
-        await SecureStore.deleteItemAsync('access_token');
-        await SecureStore.deleteItemAsync('refresh_token');
+        if (response.status === 401 || response.status === 403) {
+          await SecureStore.deleteItemAsync('access_token');
+          await SecureStore.deleteItemAsync('refresh_token');
+        }
         return null;
       }
       const session = (await response.json()) as { access_token: string; refresh_token: string };
@@ -87,11 +104,12 @@ export async function apiFetch(path: string, initialToken: string, init: Request
   const token = (await SecureStore.getItemAsync('access_token')) || initialToken;
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
+  const timeout = init.body instanceof FormData ? 45_000 : 15_000;
+  const response = await fetchWithTimeout(`${apiBaseUrl}${path}`, { ...init, headers }, timeout);
   if (response.status !== 401) return response;
   const renewed = await renewSession();
   if (!renewed) return response;
   const retryHeaders = new Headers(init.headers);
   retryHeaders.set('Authorization', `Bearer ${renewed}`);
-  return fetch(`${apiBaseUrl}${path}`, { ...init, headers: retryHeaders });
+  return fetchWithTimeout(`${apiBaseUrl}${path}`, { ...init, headers: retryHeaders }, timeout);
 }

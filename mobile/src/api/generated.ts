@@ -559,7 +559,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 按专业、话题与年份浏览经验帖 */
+        /** 按课程、专业、话题与年份浏览经验帖 */
         get: operations["listFeedPosts"];
         put?: never;
         post?: never;
@@ -3001,6 +3001,7 @@ export interface operations {
     listFeedPosts: {
         parameters: {
             query?: {
+                course_id?: number;
                 department?: string;
                 tag?: string;
                 /** @description 年份筛选，可传具体年份或 unspecified */
@@ -3500,7 +3501,10 @@ export interface operations {
     };
     myPosts: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 仅返回该编号的本人内容 */
+                id?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3529,7 +3533,10 @@ export interface operations {
     };
     myReviews: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 仅返回该编号的本人内容 */
+                id?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;

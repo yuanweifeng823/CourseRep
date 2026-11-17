@@ -1,10 +1,12 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { apiBaseUrl, apiFetch } from './api';
 import type { AdminTopicTagListResponse, Bookmark, BookmarkListResponse, CommunitySettings, CompletedCourse, CompletedCourseListResponse, CorrectionItem, CorrectionListResponse, MetricsResponse, Notification, NotificationListResponse, OwnPost, OwnPostListResponse, OwnReview, OwnReviewListResponse, PendingPost, PendingReview, ReportItem, ReportListResponse, TopicTagListResponse, UserProfile } from './src/api/types';
 import * as DocumentPicker from 'expo-document-picker';
 import * as SecureStore from 'expo-secure-store';
+import { useUnsavedChanges, type LeaveState } from './src/ui/unsavedChanges';
+import { AttendanceYearPicker } from './src/ui/AttendanceYearPicker';
 
 const green='#315f4a';const ink='#202722';
 type Notice=Notification;
@@ -14,10 +16,75 @@ const styles=StyleSheet.create({screen:{flex:1,backgroundColor:'#f5f6f2'},header
 
 function Shell({title,onBack,children}:{title:string;onBack:()=>void;children:React.ReactNode}){return <View style={styles.screen}><View style={styles.header}><TouchableOpacity onPress={onBack}><Text style={styles.back}>‹ 返回</Text></TouchableOpacity><Text style={styles.heading}>{title}</Text></View>{children}</View>}
 
-export function NotificationsScreen({token,onBack}:{token:string;onBack:()=>void}){
- const qc=useQueryClient();const [error,setError]=useState('');const query=useQuery({queryKey:['notifications'],queryFn:async()=>{const r=await apiFetch('/api/v1/notifications',token);if(!r.ok)throw new Error('通知暂时无法加载');return((await r.json()) as NotificationListResponse).items??[];}});
- const markRead=async(id:number)=>{setError('');const r=await apiFetch(`/api/v1/notifications/${id}/read`,token,{method:'POST'});if(!r.ok){setError('更新通知状态失败');return}await qc.invalidateQueries({queryKey:['notifications']});};
- return <Shell title="通知" onBack={onBack}><ScrollView contentContainerStyle={styles.content}>{error?<Text>{error}</Text>:null}{query.isLoading?<ActivityIndicator color={green}/>:query.error?<Text style={styles.empty}>通知暂时无法加载，请稍后重试</Text>:query.data?.length?query.data.map(x=><TouchableOpacity key={x.id} style={[styles.card,!x.read_at&&{borderColor:green}]} onPress={()=>{if(!x.read_at)void markRead(x.id)}}><View style={styles.row}><Text style={styles.title}>{noticeTitle(x)}</Text><Text style={styles.meta}>{x.read_at?'已读':'未读'}</Text></View><Text style={styles.body}>{noticeBody(x)}</Text><Text style={styles.meta}>{new Date(x.created_at).toLocaleString()}</Text></TouchableOpacity>):<Text style={styles.empty}>暂无通知</Text>}</ScrollView></Shell>;
+export function NotificationsScreen({ token, active, onBack, onOpenPost, onOpenOwnContent }: {
+ token: string;
+ active: boolean;
+ onBack: () => void;
+ onOpenPost: (postId: number) => void;
+ onOpenOwnContent: (list: 'reviews' | 'posts', id: number) => void;
+}) {
+ const qc = useQueryClient();
+ const [error, setError] = useState('');
+ const query = useInfiniteQuery({
+  queryKey: ['notifications'],
+  enabled: active,
+  initialPageParam: 1,
+  queryFn: async ({ pageParam }) => {
+   const response = await apiFetch(`/api/v1/notifications?page=${pageParam}&page_size=20`, token);
+   if (!response.ok) throw new Error('通知暂时无法加载');
+   return (await response.json()) as NotificationListResponse;
+  },
+  getNextPageParam: (page, _, previousPage) =>
+   (page.items?.length ?? 0) === 20 ? previousPage + 1 : undefined,
+ });
+
+ const markRead = async (id: number) => {
+  setError('');
+  try {
+   const response = await apiFetch(`/api/v1/notifications/${id}/read`, token, { method: 'POST' });
+   if (!response.ok) throw new Error();
+   await qc.invalidateQueries({ queryKey: ['notifications'] });
+  } catch {
+   setError('未能标为已读，可再次点击通知重试。');
+  }
+ };
+
+ const open = (notice: Notice) => {
+  if (!notice.read_at) void markRead(notice.id);
+  const validId = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+  const postId = notice.payload.post_id;
+  const reviewId = notice.payload.review_id;
+  if ((notice.kind === 'post_like' || notice.kind === 'post_comment') && validId(postId)) onOpenPost(postId);
+  if (notice.kind === 'post_moderation' && validId(postId)) onOpenOwnContent('posts', postId);
+  if (notice.kind === 'review_moderation' && validId(reviewId)) onOpenOwnContent('reviews', reviewId);
+ };
+
+ const items = query.data?.pages.flatMap((page) => page.items ?? []) ?? [];
+ return <Shell title="通知" onBack={onBack}>
+  <ScrollView contentContainerStyle={styles.content}
+   refreshControl={<RefreshControl refreshing={query.isRefetching && !query.isFetchingNextPage}
+    onRefresh={()=>void query.refetch()} tintColor={green} />}>
+   {!!error && <Text style={styles.body}>{error}</Text>}
+   {query.isPending && <ActivityIndicator color={green} />}
+   {query.isError && <TouchableOpacity onPress={() => void query.refetch()}>
+    <Text style={styles.empty}>通知暂时无法加载，点击重试</Text>
+   </TouchableOpacity>}
+   {query.isSuccess && !items.length && <Text style={styles.empty}>暂无通知</Text>}
+   {items.map((notice) => <TouchableOpacity key={notice.id} accessibilityRole="button"
+    style={[styles.card, !notice.read_at && { borderColor: green }]} onPress={() => open(notice)}>
+    <View style={styles.row}>
+     <Text style={styles.title}>{noticeTitle(notice)}</Text>
+     <Text style={styles.meta}>{notice.read_at ? '已读' : '未读'}</Text>
+    </View>
+    <Text style={styles.body}>{noticeBody(notice)}</Text>
+    <Text style={styles.meta}>{new Date(notice.created_at).toLocaleString()}</Text>
+   </TouchableOpacity>)}
+   {query.hasNextPage && <TouchableOpacity style={styles.button} disabled={query.isFetchingNextPage}
+    onPress={() => void query.fetchNextPage()}>
+    <Text style={styles.buttonText}>{query.isFetchingNextPage ? '正在加载…' : '加载更多通知'}</Text>
+   </TouchableOpacity>}
+  </ScrollView>
+ </Shell>;
 }
 
 export function ProfileScreen({token,onBack,onLogout}:{token:string;onBack:()=>void;onLogout:()=>void}){
@@ -27,11 +94,19 @@ export function ProfileScreen({token,onBack,onLogout}:{token:string;onBack:()=>v
  return <Shell title="我的" onBack={onBack}><ScrollView contentContainerStyle={styles.content}><View style={styles.card}><Text style={styles.title}>{profile.data?.nickname??(profile.isLoading?'读取中…':'个人资料暂不可用')}</Text><Text style={styles.meta}>账号状态：{statusLabel(profile.data?.status)}</Text></View>{profile.data?.role&&profile.data.role!=='user'&&<TouchableOpacity style={styles.button} onPress={()=>setAdminOpen(true)}><Text style={styles.buttonText}>运营管理</Text></TouchableOpacity>}<Text style={styles.title}>已修读课程</Text>{courses.data?.length?courses.data.map(x=><View key={x.id} style={styles.card}><Text style={styles.title}>{x.course_code} · {x.course_name}</Text><Text style={styles.meta}>{x.semester} · {x.department}</Text></View>):<Text style={styles.empty}>暂未标记已修读课程，可在课程详情页添加</Text>}<Text style={[styles.title,{marginTop:22,marginBottom:10}]}>我的评价</Text>{reviews.data?.length?reviews.data.map(x=><View key={x.id} style={styles.card}><Text style={styles.title}>{x.course_code} · {x.course_name}</Text><Text style={styles.meta}>{statusLabel(x.status)} · {x.semester}</Text><Text style={styles.body}>给分 {x.grading} · 工作量 {x.workload} · 考核 {x.assessment} · 实用性 {x.usefulness}</Text>{!!x.body&&<Text style={styles.body}>{x.body}</Text>}{['published','rejected'].includes(x.status)&&<TouchableOpacity onPress={()=>setEdit({kind:'review',item:x})}><Text style={styles.meta}>编辑并重新提交审核</Text></TouchableOpacity>}</View>):<Text style={styles.empty}>暂无评价</Text>}<Text style={[styles.title,{marginTop:22,marginBottom:10}]}>我的经验帖</Text>{posts.data?.length?posts.data.map(x=><View key={x.id} style={styles.card}><Text style={styles.title}>{x.title}</Text><Text style={styles.meta}>{x.course_code} · {x.attendance_year_label} · {statusLabel(x.status)}</Text><Text style={styles.body} numberOfLines={3}>{x.body}</Text>{['published','rejected'].includes(x.status)&&<TouchableOpacity onPress={()=>setEdit({kind:'post',item:x})}><Text style={styles.meta}>编辑并重新提交审核</Text></TouchableOpacity>}</View>):<Text style={styles.empty}>暂无经验帖</Text>}<Text style={[styles.title,{marginTop:22,marginBottom:10}]}>我的收藏</Text>{bookmarks.data?.length?bookmarks.data.map(x=><View key={x.id} style={styles.card}><Text style={styles.title}>{x.title}</Text><Text style={styles.meta}>{x.course_code} · {x.attendance_year_label} · {x.display_name}</Text><Text style={styles.body} numberOfLines={3}>{x.body}</Text></View>):<Text style={styles.empty}>暂无收藏</Text>}<TouchableOpacity style={styles.button} onPress={onLogout}><Text style={styles.buttonText}>退出登录</Text></TouchableOpacity></ScrollView></Shell>;
 }
 
-export function ProfileEditScreen({token,edit,onBack,onSaved}:{token:string;edit:{kind:'review';item:OwnReview}|{kind:'post';item:OwnPost};onBack:()=>void;onSaved:()=>void}){
+export function ProfileEditScreen({token,edit,onBack,onSaved,onDirtyChange}:{onDirtyChange?:(dirty:LeaveState)=>void;token:string;edit:{kind:'review';item:OwnReview}|{kind:'post';item:OwnPost};onBack:()=>void;onSaved:()=>void}){
  const [busy,setBusy]=useState(false);const [message,setMessage]=useState('');const review=edit.kind==='review'?edit.item:null;const post=edit.kind==='post'?edit.item:null;
  const [scores,setScores]=useState(review?[review.grading,review.workload,review.assessment,review.usefulness]:[3,3,3,3]);const [body,setBody]=useState(review?.body??post?.body??'');const [title,setTitle]=useState(post?.title??'');const [year,setYear]=useState(post?.attendance_year==null?'':String(post.attendance_year));const [identity,setIdentity]=useState(post?.display_identity??'named');const [tags,setTags]=useState((review?.tags??post?.topic_tags??[]).join(', '));const [images,setImages]=useState((post?.image_urls??[]).join('\n'));
+ const [yearPicker,setYearPicker]=useState(false);
+ const changed = body !== (review?.body ?? post?.body ?? '') || title !== (post?.title ?? '') ||
+  year !== (post?.attendance_year == null ? '' : String(post.attendance_year)) ||
+  identity !== (post?.display_identity ?? 'named') ||
+  tags !== (review?.tags ?? post?.topic_tags ?? []).join(', ') ||
+  images !== (post?.image_urls ?? []).join('\n') ||
+  (!!review && scores.some((score,index)=>score!==[review.grading,review.workload,review.assessment,review.usefulness][index]));
+ useUnsavedChanges(busy ? 'busy' : changed,onDirtyChange);
  const save=async()=>{setBusy(true);setMessage('');try{const path=review?`/api/v1/courses/${review.course_id}/reviews/${review.id}`:`/api/v1/posts/${post!.id}`;const payload=review?{grading:scores[0],workload:scores[1],assessment:scores[2],usefulness:scores[3],tags:tags.split(',').map(x=>x.trim()).filter(Boolean),body}:{title,body,image_urls:images.split(/\s+/).filter(Boolean),topic_tags:tags.split(',').map(x=>x.trim()).filter(Boolean),attendance_year:year===''?null:Number(year),display_identity:identity};const r=await apiFetch(path,token,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const data=await r.json().catch(()=>({})) as {error?:string};if(!r.ok)throw new Error(data.error||'保存失败');onSaved();}catch(e){setMessage(e instanceof Error?e.message:'保存失败');}finally{setBusy(false)}};
- return <Shell title={review?'编辑课程评价':'编辑经验帖'} onBack={onBack}><ScrollView contentContainerStyle={styles.content}><View style={styles.card}><Text style={styles.meta}>保存后内容会重新进入审核队列。{review?'评价仍然匿名展示。':''}</Text>{review&&['给分体验','工作量','考核方式','实用性'].map((label,i)=><View key={label}><Text style={styles.meta}>{label}：{scores[i]}</Text><View style={styles.row}>{[1,2,3,4,5].map(n=><TouchableOpacity key={n} onPress={()=>setScores(v=>v.map((x,j)=>j===i?n:x))}><Text style={styles.meta}>{scores[i]===n?`【${n}】`:`${n}`}</Text></TouchableOpacity>)}</View></View>)}{post&&<><TextInput value={title} onChangeText={setTitle} maxLength={120} placeholder="标题" style={adminStyles.input}/><TextInput value={year} onChangeText={setYear} keyboardType="number-pad" placeholder="修读年份；留空表示未注明" style={adminStyles.input}/><TouchableOpacity onPress={()=>setIdentity(identity==='anonymous'?'named':'anonymous')}><Text style={styles.meta}>{identity==='anonymous'?'☑ 匿名发布':'□ 署名发布'}</Text></TouchableOpacity><TextInput value={images} onChangeText={setImages} multiline placeholder="图片 URL，每行一个（最多 9 个）" style={adminStyles.input}/></>}<TextInput value={body} onChangeText={setBody} multiline maxLength={2000} placeholder="内容说明" style={[adminStyles.input,{minHeight:100}]}/><TextInput value={tags} onChangeText={setTags} placeholder={review?'评价标签，用逗号分隔':'话题标签，用逗号分隔'} style={adminStyles.input}/>{!!message&&<Text style={styles.meta}>{message}</Text>}<TouchableOpacity style={styles.button} disabled={busy} onPress={()=>void save()}><Text style={styles.buttonText}>{busy?'保存中…':'保存并重新提交审核'}</Text></TouchableOpacity></View></ScrollView></Shell>;
+ return <Shell title={review?'编辑课程评价':'编辑经验帖'} onBack={onBack}><ScrollView contentContainerStyle={styles.content}><View style={styles.card}><Text style={styles.meta}>保存后内容会重新进入审核队列。{review?'评价仍然匿名展示。':''}</Text>{review&&['给分体验','工作量','考核方式','实用性'].map((label,i)=><View key={label}><Text style={styles.meta}>{label}：{scores[i]}</Text><View style={styles.row}>{[1,2,3,4,5].map(n=><TouchableOpacity key={n} onPress={()=>setScores(v=>v.map((x,j)=>j===i?n:x))}><Text style={styles.meta}>{scores[i]===n?`【${n}】`:`${n}`}</Text></TouchableOpacity>)}</View></View>)}{post&&<><TextInput value={title} onChangeText={setTitle} maxLength={120} placeholder="标题" style={adminStyles.input}/><TouchableOpacity style={adminStyles.input} accessibilityRole="button" onPress={()=>setYearPicker(true)}><Text>修读年份 · {year||'年份未注明'} ▾</Text></TouchableOpacity><AttendanceYearPicker visible={yearPicker} value={year||'unspecified'} onClose={()=>setYearPicker(false)} onChange={value=>{setYear(value==='unspecified'?'':value);setYearPicker(false);}}/><TouchableOpacity onPress={()=>setIdentity(identity==='anonymous'?'named':'anonymous')}><Text style={styles.meta}>{identity==='anonymous'?'☑ 匿名发布':'□ 署名发布'}</Text></TouchableOpacity><TextInput value={images} onChangeText={setImages} multiline placeholder="图片 URL，每行一个（最多 9 个）" style={adminStyles.input}/></>}<TextInput value={body} onChangeText={setBody} multiline maxLength={2000} placeholder="内容说明" style={[adminStyles.input,{minHeight:100}]}/><TextInput value={tags} onChangeText={setTags} placeholder={review?'评价标签，用逗号分隔':'话题标签，用逗号分隔'} style={adminStyles.input}/>{!!message&&<Text style={styles.meta}>{message}</Text>}<TouchableOpacity style={styles.button} disabled={busy} onPress={()=>void save()}><Text style={styles.buttonText}>{busy?'保存中…':'保存并重新提交审核'}</Text></TouchableOpacity></View></ScrollView></Shell>;
 }
 
 type Report=ReportItem;
@@ -120,4 +195,4 @@ const adminStyles=StyleSheet.create({tabs:{maxHeight:54,flexGrow:0,backgroundCol
 
 function statusLabel(status?:string){return ({verified:'已验证',alumni_readonly:'校友只读',unverified:'未验证',submitted:'审核中',under_review:'复核中',published:'已发布',rejected:'未通过',removed:'已下架'} as Record<string,string>)[status??'']??'未知'}
 function noticeTitle(n:Notice){if(n.kind==='post_like')return '经验帖收到点赞';if(n.kind==='post_comment')return '经验帖收到评论';if(n.kind==='review_moderation'||n.kind==='post_moderation'){const s=String(n.payload.status??'');return s==='published'?'内容审核通过':s==='rejected'?'内容审核未通过':'内容已下架'}if(n.kind==='report_result')return '举报处理结果';return 'CourseRep 通知'}
-function noticeBody(n:Notice){if(n.kind==='report_result')return `举报单 ${String(n.payload.report_id??'')} 已${n.payload.status==='resolved'?'处理':'关闭'}`;if(n.kind==='post_moderation'||n.kind==='review_moderation')return '查看“我的”页面了解内容状态。';return '打开相关课程查看详情。'}
+function noticeBody(n:Notice){if(n.kind==='report_result')return `举报单 ${String(n.payload.report_id??'')} 已${n.payload.status==='resolved'?'处理':'关闭'}`;if(n.kind==='post_moderation'||n.kind==='review_moderation')return '查看这条内容和审核状态。';if(n.kind==='post_like'||n.kind==='post_comment')return '打开相关经验帖。';return ''}

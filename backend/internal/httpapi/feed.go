@@ -29,7 +29,7 @@ type feedPost struct {
 	Course       homeCourse `json:"course"`
 }
 
-// registerFeedRoutes 提供跨课程的经验帖信息流，供「分享」页按专业/话题/年份筛选。
+// registerFeedRoutes 提供跨课程的经验帖信息流，供「分享」页按课程/专业/话题/年份筛选。
 func registerFeedRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	mux.Handle("GET /api/v1/posts", authenticate(pool, canBrowse(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		page, err := queryInt(r, "page", 1, 1, 1_000_000)
@@ -40,6 +40,11 @@ func registerFeedRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		size, err := queryInt(r, "page_size", 20, 1, 100)
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": "page_size 无效"})
+			return
+		}
+		courseID, err := queryOptionalID(r, "course_id")
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": "课程编号无效"})
 			return
 		}
 		department := strings.TrimSpace(r.URL.Query().Get("department"))
@@ -93,8 +98,9 @@ func registerFeedRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		  AND ($1='' OR c.department=$1)
 		  AND ($2='' OR $2=ANY(p.topic_tags))
 		  AND ($3='' OR ($3='unspecified' AND p.attendance_year IS NULL) OR p.attendance_year::text=$3)
+		  AND ($7::bigint=0 OR p.course_id=$7)
 		ORDER BY ` + order + ` LIMIT $5 OFFSET $6`
-		rows, err := pool.Query(r.Context(), query, department, tag, year, viewer.ID, size, (page-1)*size)
+		rows, err := pool.Query(r.Context(), query, department, tag, year, viewer.ID, size, (page-1)*size, courseID)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "读取经验帖失败"})
 			return
