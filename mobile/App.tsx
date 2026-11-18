@@ -7,7 +7,14 @@ import { confirmDiscard, type LeaveState } from './src/ui/unsavedChanges';
 import type { CourseDetailCourse } from './src/api/types';
 import { AdminScreen, NotificationsScreen, ProfileEditScreen } from './UserScreens';
 import { apiBaseUrl, apiFetch, fetchWithTimeout, initApiBase, isTimeoutError } from './api';
-import type { LoginRequest, LoginResponse, RegisterRequest } from './src/api/types';
+import type {
+  ForgotPasswordRequest,
+  LoginRequest,
+  LoginResponse,
+  RegisterRequest,
+  ResetPasswordRequest,
+  VerifyEmailRequest,
+} from './src/api/types';
 import { CourseCatalog } from './src/screens/CourseCatalog';
 import { ComposePostScreen } from './src/screens/ComposePostScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -51,37 +58,62 @@ const tabs: { key: Tab; icon: string; label: string }[] = [
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 15_000, retry: 1 } } });
 
+const authCopy = {
+  login: { title: '登录 CourseRep', intro: '使用学校邮箱登录或注册', submit: '登录' },
+  register: { title: '创建校内账号', intro: '使用学校邮箱登录或注册', submit: '发送验证码' },
+  verify: { title: '验证学生邮箱', intro: '验证码有效期为 10 分钟，也可检查垃圾邮件文件夹。', submit: '验证邮箱' },
+  'forgot-password': { title: '找回密码', intro: '输入注册时使用的学生邮箱。', submit: '发送验证码' },
+  'reset-password': { title: '设置新密码', intro: '输入邮件里的 6 位验证码，验证码有效期为 10 分钟。', submit: '重置密码' },
+};
+
 function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) => Promise<void> }) {
-  const [mode, setMode] = useState<'login' | 'register' | 'verify'>('login');
+  const [mode, setMode] = useState<keyof typeof authCopy>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [nickname, setNickname] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(Date.now);
+  const waitingForCode = mode === 'verify' || mode === 'reset-password';
   const resendIn = Math.max(0, Math.ceil((resendAt - now) / 1000));
   useEffect(() => {
-    if (mode !== 'verify' || resendIn === 0) return;
+    if (!waitingForCode || resendIn === 0) return;
     const timer = setTimeout(() => setNow(Date.now()), 1000);
     return () => clearTimeout(timer);
-  }, [mode, resendIn, now]);
+  }, [waitingForCode, resendIn, now]);
 
   const submit = async (resend = false) => {
     if (busy || (resend && resendIn > 0)) return;
+    if (mode === 'reset-password' && !resend && password !== confirmPassword) {
+      setMessage('两次输入的新密码不一致');
+      return;
+    }
     setBusy(true);
     setMessage('');
     try {
-      const path = resend ? 'register' : mode;
-      const body: LoginRequest | RegisterRequest | { email: string; code: string } =
-        path === 'login' ? { email, password } : path === 'register' ? { email, password, nickname } : { email, code };
+      const path = resend ? (mode === 'verify' ? 'register' : 'forgot-password') : mode;
+      const bodies: {
+        login: LoginRequest;
+        register: RegisterRequest;
+        verify: VerifyEmailRequest;
+        'forgot-password': ForgotPasswordRequest;
+        'reset-password': ResetPasswordRequest;
+      } = {
+        login: { email, password },
+        register: { email, password, nickname },
+        verify: { email, code },
+        'forgot-password': { email },
+        'reset-password': { email, code, password },
+      };
       const response = await fetchWithTimeout(
         `${apiBaseUrl}/api/v1/auth/${path}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify(bodies[path]),
         },
         15000,
       );
@@ -95,17 +127,24 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
         }
         throw new Error(payload.error ?? '请求失败，请稍后再试');
       }
-      if (mode === 'login' && payload.access_token && payload.refresh_token) await onLogin(payload.access_token, payload.refresh_token);
-      else if (path === 'register') {
+      if (path === 'login') {
+        if (!payload.access_token || !payload.refresh_token) throw new Error('登录服务返回异常，请稍后重试');
+        await onLogin(payload.access_token, payload.refresh_token);
+      } else if (path === 'register' || path === 'forgot-password') {
         const current = Date.now();
         setNow(current);
         setResendAt(current + 60_000);
         setCode('');
-        setMode('verify');
+        setMode(path === 'register' ? 'verify' : 'reset-password');
         setMessage(payload.message ?? '验证码已发送');
       } else {
+        if (path === 'reset-password') {
+          setPassword('');
+          setConfirmPassword('');
+          setCode('');
+        }
         setMode('login');
-        setMessage('邮箱验证完成，请登录');
+        setMessage(path === 'verify' ? '邮箱验证完成，请登录' : '密码已重置，请使用新密码登录');
       }
     } catch (error) {
       setMessage(isTimeoutError(error) ? '服务暂时未响应，请检查网络后重试' : error instanceof TypeError ? '无法连接服务，请检查网络后重试' : error instanceof Error ? error.message : '暂时无法连接服务');
@@ -113,7 +152,7 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
       setBusy(false);
     }
   };
-  const title = mode === 'login' ? '登录 CourseRep' : mode === 'register' ? '创建校内账号' : '验证学生邮箱';
+  const { title, intro, submit: submitLabel } = authCopy[mode];
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.authContent} keyboardShouldPersistTaps="handled">
@@ -121,32 +160,48 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
           <Text style={styles.markText}>C</Text>
         </View>
         <Text style={styles.authTitle}>{title}</Text>
-        <Text style={styles.authIntro}>{mode === 'verify' ? '验证码有效期为 10 分钟，也可检查垃圾邮件文件夹。' : '使用学校邮箱登录或注册'}</Text>
+        <Text style={styles.authIntro}>{intro}</Text>
         <TextInput
           autoCapitalize="none"
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
-          editable={!busy && mode !== 'verify'}
+          editable={!busy && !waitingForCode}
           placeholder="学生邮箱"
           style={styles.authInput}
         />
-        {mode !== 'verify' && (
-          <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="密码（至少 10 位）" style={styles.authInput} />
+        {waitingForCode && (
+          <TextInput value={code} onChangeText={setCode} editable={!busy} keyboardType="number-pad" autoComplete="one-time-code" maxLength={6} placeholder="邮箱验证码" style={styles.authInput} />
         )}
-        {mode === 'register' && <TextInput value={nickname} onChangeText={setNickname} placeholder="昵称" style={styles.authInput} />}
-        {mode === 'verify' && (
-          <TextInput value={code} onChangeText={setCode} keyboardType="number-pad" maxLength={6} placeholder="邮箱验证码" style={styles.authInput} />
+        {(mode === 'login' || mode === 'register' || mode === 'reset-password') && (
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            editable={!busy}
+            secureTextEntry
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            placeholder={mode === 'reset-password' ? '新密码（至少 10 个字节）' : '密码（至少 10 位）'}
+            style={styles.authInput}
+          />
         )}
+        {mode === 'reset-password' && (
+          <TextInput value={confirmPassword} onChangeText={setConfirmPassword} editable={!busy} secureTextEntry autoComplete="new-password" placeholder="确认新密码" style={styles.authInput} />
+        )}
+        {mode === 'register' && <TextInput value={nickname} onChangeText={setNickname} editable={!busy} placeholder="昵称" style={styles.authInput} />}
         {!!message && <Text style={styles.authMessage}>{message}</Text>}
         <TouchableOpacity disabled={busy} onPress={() => void submit()} style={styles.authButton}>
           <Text style={styles.authButtonText}>
-            {busy ? '请稍候…' : mode === 'login' ? '登录' : mode === 'register' ? '发送验证码' : '验证邮箱'}
+            {busy ? '请稍候…' : submitLabel}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           disabled={busy}
           onPress={() => {
+            if (mode === 'reset-password') {
+              setPassword('');
+              setConfirmPassword('');
+              setCode('');
+            }
             setMessage('');
             setMode(mode === 'login' ? 'register' : 'login');
           }}
@@ -154,13 +209,28 @@ function AuthScreen({ onLogin }: { onLogin: (access: string, refresh: string) =>
         >
           <Text style={styles.authSwitch}>{mode === 'login' ? '还没有账号？注册' : '返回登录'}</Text>
         </TouchableOpacity>
-        {mode === 'verify' && (
+        {mode === 'login' && (
+          <TouchableOpacity
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => {
+              setPassword('');
+              setConfirmPassword('');
+              setMessage('');
+              setMode('forgot-password');
+            }}
+            style={{ padding: 14 }}
+          >
+            <Text style={styles.authSwitch}>忘记密码？</Text>
+          </TouchableOpacity>
+        )}
+        {waitingForCode && (
           <>
             <TouchableOpacity disabled={busy || resendIn > 0} onPress={() => void submit(true)} style={{ padding: 14 }}>
               <Text style={styles.authSwitch}>{resendIn ? `${resendIn} 秒后可重发验证码` : '重新发送验证码'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity disabled={busy} onPress={() => { setMessage(''); setMode('register'); }} style={{ padding: 14 }}>
-              <Text style={styles.authSwitch}>修改注册信息</Text>
+            <TouchableOpacity disabled={busy} onPress={() => { setMessage(''); setMode(mode === 'verify' ? 'register' : 'forgot-password'); }} style={{ padding: 14 }}>
+              <Text style={styles.authSwitch}>{mode === 'verify' ? '修改注册信息' : '修改邮箱'}</Text>
             </TouchableOpacity>
           </>
         )}

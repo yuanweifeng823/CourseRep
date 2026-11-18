@@ -19,6 +19,10 @@ go run ./cmd/courserep
 
 `POST /api/v1/auth/logout` 只撤销请求中传入的 `refresh_token`，不要求访问令牌；令牌缺失或已失效同样返回 204，便于客户端幂等登出。
 
+`POST /api/v1/auth/forgot-password` 接受 `email`，统一返回 202；符合条件的已验证邮箱通过同一 SMTP 配置收到 6 位验证码。同一账号每分钟最多发送一次，重发后以最新验证码为准。验证码 10 分钟内有效，最多尝试 5 次。`POST /api/v1/auth/reset-password` 接受 `email`、`code`、`password`，成功后旧访问令牌和刷新令牌失效。升级前执行迁移 `00011_password_reset.sql`。回滚到旧版认证服务时，请同时轮换 `AUTH_SECRET`，避免仍处于有效期内的旧访问令牌被旧版接受。
+
+可将 `PASSWORD_RESET_TEST_DATABASE_URL` 指向已迁移的独立测试库，再运行 `go test ./internal/httpapi -run TestPasswordResetThroughAPI -count=1`。测试在本机接收邮件。
+
 已验证账号可用 `POST /api/v1/uploads` 以 multipart 字段 `image` 上传 JPEG/PNG（最多 8MB、6000×6000 且 25MP）；图片重编码为 JPEG 并移除 EXIF，文件保存在 `UPLOAD_DIR`（默认 `./uploads`）。响应提供 `/uploads/<随机名>.jpg` 和个人信息遮挡提示；读取图片需带已验证账号访问令牌。图像数据目录不应提交到仓库。
 
 管理员课程导入使用 `POST /api/v1/admin/course-imports/preview` 上传 multipart `file`，支持 UTF-8 CSV/XLSX、最多 5000 行与 10MB；XLSX 读取第一个工作表。可从 [`templates/course-import-template.csv`](templates/course-import-template.csv) 开始填写。表头必须包含 `course_code,course_name,professor,semester,department,credits`（顺序可调整）；除教授外均必填。课程代码最多 40 字符、课程名 200、教授 120、学期 40、专业 120；学分为 0 到 99 的数字。同一文件内课程代码与学期不得重复。响应包含逐行错误及有效记录预览；移动端展示前 30 条有效记录和全部校验错误。没有错误时，使用响应的 `batch_id` 调用 `POST /api/v1/admin/course-imports/{batchID}/confirm` 才会在事务中写入课程目录；相同课程代码/学期作为更新处理。批次 24 小时过期。

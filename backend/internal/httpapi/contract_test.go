@@ -21,7 +21,7 @@ func TestOpenAPIContractHasCoreRoutes(t *testing.T) {
 	if spec.OpenAPI != "3.1.0" {
 		t.Fatalf("expected OpenAPI 3.1, got %q", spec.OpenAPI)
 	}
-	for _, path := range []string{"/api/v1/auth/register", "/api/v1/courses", "/api/v1/courses/{courseID}/reviews", "/api/v1/courses/{courseID}/posts", "/api/v1/reports"} {
+	for _, path := range []string{"/api/v1/auth/register", "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/courses", "/api/v1/courses/{courseID}/reviews", "/api/v1/courses/{courseID}/posts", "/api/v1/reports"} {
 		if len(spec.Paths[path]) == 0 {
 			t.Errorf("missing API path %s", path)
 		}

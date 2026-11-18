@@ -68,7 +68,7 @@ func TestExperienceFilters(t *testing.T) {
 
 	const secret = "local-test-secret-at-least-32-bytes"
 	t.Setenv("AUTH_SECRET", secret)
-	token, err := signAccess(1, []byte(secret), time.Now().Add(time.Minute))
+	token, err := signAccess(1, 0, []byte(secret), time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

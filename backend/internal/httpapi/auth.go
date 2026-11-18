@@ -33,8 +33,9 @@ type registration struct {
 }
 
 type accessClaims struct {
-	UserID  int64 `json:"sub"`
-	Expires int64 `json:"exp"`
+	UserID         int64 `json:"sub"`
+	Expires        int64 `json:"exp"`
+	SessionVersion int64 `json:"sv,omitempty"`
 }
 type authUser struct {
 	ID     int64
@@ -51,6 +52,7 @@ func userFromContext(ctx context.Context) authUser {
 // registerRoutes implements the first step of email verification. SMTP settings
 // are mandatory; verification codes and credentials are never returned by API.
 func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
+	registerPasswordResetRoutes(mux, pool)
 	mux.HandleFunc("POST /api/v1/auth/register", func(w http.ResponseWriter, r *http.Request) {
 		if !allowRate(w, r, "register", 5, time.Hour) {
 			return
@@ -97,7 +99,7 @@ func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		if err := sendVerification(req.Email, code); err != nil {
-			log.Printf("send verification email to %s: %v", req.Email, err)
+			log.Print("registration email delivery failed")
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "验证邮件暂时无法发送，请稍后重试"})
 			return
 		}
@@ -165,7 +167,8 @@ func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		email := strings.ToLower(strings.TrimSpace(req.Email))
 		var u authUser
 		var passwordHash string
-		if err := pool.QueryRow(r.Context(), `SELECT id,status,role,password_hash FROM users WHERE email=$1`, email).Scan(&u.ID, &u.Status, &u.Role, &passwordHash); err != nil || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil || u.Status == "disabled" {
+		var version int64
+		if err := pool.QueryRow(r.Context(), `SELECT id,status,role,password_hash,session_version FROM users WHERE email=$1`, email).Scan(&u.ID, &u.Status, &u.Role, &passwordHash, &version); err != nil || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil || u.Status == "disabled" {
 			writeJSON(w, 401, map[string]string{"error": "邮箱或密码无效"})
 			return
 		}
@@ -180,12 +183,12 @@ func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		refreshHash := sha256.Sum256([]byte(refresh))
-		_, err = pool.Exec(r.Context(), `INSERT INTO refresh_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')`, u.ID, hex.EncodeToString(refreshHash[:]))
+		_, err = pool.Exec(r.Context(), `INSERT INTO refresh_sessions(user_id,token_hash,expires_at,session_version) VALUES($1,$2,now()+interval '30 days',$3)`, u.ID, hex.EncodeToString(refreshHash[:]), version)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "无法创建登录会话"})
 			return
 		}
-		access, err := signAccess(u.ID, secret, time.Now().Add(15*time.Minute))
+		access, err := signAccess(u.ID, version, secret, time.Now().Add(15*time.Minute))
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "无法创建登录会话"})
 			return
@@ -215,11 +218,11 @@ func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		defer tx.Rollback(r.Context())
-		var uid int64
+		var uid, version int64
 		var status, role string
-		err = tx.QueryRow(r.Context(), `UPDATE refresh_sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now() RETURNING user_id`, hex.EncodeToString(h[:])).Scan(&uid)
+		err = tx.QueryRow(r.Context(), `UPDATE refresh_sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now() RETURNING user_id,session_version`, hex.EncodeToString(h[:])).Scan(&uid, &version)
 		if err == nil {
-			err = tx.QueryRow(r.Context(), `SELECT status,role FROM users WHERE id=$1`, uid).Scan(&status, &role)
+			err = tx.QueryRow(r.Context(), `SELECT status,role FROM users WHERE id=$1 AND session_version=$2`, uid, version).Scan(&status, &role)
 		}
 		if err != nil || status == "disabled" {
 			writeJSON(w, 401, map[string]string{"error": "刷新令牌无效或账号不可用"})
@@ -231,12 +234,12 @@ func registerRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return
 		}
 		nh := sha256.Sum256([]byte(newRefresh))
-		_, err = tx.Exec(r.Context(), `INSERT INTO refresh_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')`, uid, hex.EncodeToString(nh[:]))
+		_, err = tx.Exec(r.Context(), `INSERT INTO refresh_sessions(user_id,token_hash,expires_at,session_version) VALUES($1,$2,now()+interval '30 days',$3)`, uid, hex.EncodeToString(nh[:]), version)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "无法刷新会话"})
 			return
 		}
-		access, e := signAccess(uid, secret, time.Now().Add(15*time.Minute))
+		access, e := signAccess(uid, version, secret, time.Now().Add(15*time.Minute))
 		if e != nil {
 			writeJSON(w, 500, map[string]string{"error": "无法刷新会话"})
 			return
@@ -314,8 +317,8 @@ func opaqueToken() (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
-func signAccess(uid int64, secret []byte, expires time.Time) (string, error) {
-	payload, e := json.Marshal(accessClaims{uid, expires.Unix()})
+func signAccess(uid, version int64, secret []byte, expires time.Time) (string, error) {
+	payload, e := json.Marshal(accessClaims{UserID: uid, Expires: expires.Unix(), SessionVersion: version})
 	if e != nil {
 		return "", e
 	}
@@ -346,7 +349,7 @@ func authenticate(pool *pgxpool.Pool, next http.Handler) http.Handler {
 			return
 		}
 		var u authUser
-		if pool.QueryRow(r.Context(), `SELECT id,status,role FROM users WHERE id=$1`, c.UserID).Scan(&u.ID, &u.Status, &u.Role) != nil || u.Status == "disabled" {
+		if pool.QueryRow(r.Context(), `SELECT id,status,role FROM users WHERE id=$1 AND session_version=$2`, c.UserID, c.SessionVersion).Scan(&u.ID, &u.Status, &u.Role) != nil || u.Status == "disabled" {
 			writeJSON(w, 401, map[string]string{"error": "账号不可用"})
 			return
 		}
@@ -387,10 +390,18 @@ func requireAdmin(next http.Handler) http.Handler {
 }
 
 func validRegistration(req registration) bool {
-	e := strings.TrimSpace(req.Email)
 	n := strings.TrimSpace(req.Nickname)
+	return validAccountEmail(req.Email) && emailDomainAllowed(req.Email) && validPassword(req.Password) && len([]rune(n)) >= 1 && len([]rune(n)) <= 40
+}
+
+func validAccountEmail(email string) bool {
+	e := strings.TrimSpace(email)
 	addr, err := mail.ParseAddress(e)
-	return err == nil && addr.Address == e && len(e) <= 254 && emailDomainAllowed(e) && !strings.ContainsAny(e, "\r\n") && len(req.Password) >= 10 && len(req.Password) <= 72 && len([]rune(n)) >= 1 && len([]rune(n)) <= 40
+	return err == nil && addr.Address == e && len(e) <= 254 && !strings.ContainsAny(e, "\r\n")
+}
+
+func validPassword(password string) bool {
+	return len(password) >= 10 && len(password) <= 72
 }
 
 func emailDomainAllowed(email string) bool {
@@ -413,6 +424,10 @@ func emailDomainAllowed(email string) bool {
 }
 
 func sendVerification(to, code string) error {
+	return sendAccountMail(to, "CourseRep 邮箱验证码", "你的验证码是 "+code+"，10 分钟内有效。若非本人操作，请忽略此邮件。")
+}
+
+func sendAccountMail(to, title, message string) error {
 	host := os.Getenv("SMTP_HOST")
 	from := os.Getenv("SMTP_FROM")
 	if host == "" || from == "" {
@@ -428,27 +443,33 @@ func sendVerification(to, code string) error {
 	if user != "" {
 		auth = smtp.PlainAuth("", user, pass, host)
 	}
-	subject := mime.QEncoding.Encode("utf-8", "CourseRep 邮箱验证码")
-	body := []byte("To: " + to + "\r\nSubject: " + subject + "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n你的验证码是 " + code + "，10 分钟内有效。若非本人操作，请忽略此邮件。\r\n")
-	// 465/994 与 SMTP_TLS=implicit 使用连接建立即加密（implicit TLS）；
-	// 其余端口沿用 smtp.SendMail 的明文 + STARTTLS 升级。
-	if os.Getenv("SMTP_TLS") == "implicit" || port == "465" || port == "994" {
-		return sendMailImplicitTLS(address, host, auth, from, to, body)
-	}
-	return smtp.SendMail(address, auth, from, []string{to}, body)
-}
-
-func sendMailImplicitTLS(address, host string, auth smtp.Auth, from, to string, body []byte) error {
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 20 * time.Second}, "tcp", address, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+	subject := mime.QEncoding.Encode("utf-8", title)
+	body := []byte("To: " + to + "\r\nSubject: " + subject + "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n" + message + "\r\n")
+	deadline := time.Now().Add(12 * time.Second)
+	dialer := net.Dialer{Deadline: deadline}
+	conn, err := dialer.Dial("tcp", address)
 	if err != nil {
 		return err
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(deadline); err != nil {
+		return err
+	}
+	tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	implicit := os.Getenv("SMTP_TLS") == "implicit" || port == "465" || port == "994"
+	if implicit {
+		conn = tls.Client(conn, tlsConfig)
 	}
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
-		conn.Close()
 		return err
 	}
 	defer client.Close()
+	if supported, _ := client.Extension("STARTTLS"); !implicit && supported {
+		if err := client.StartTLS(tlsConfig); err != nil {
+			return err
+		}
+	}
 	if auth != nil {
 		if err := client.Auth(auth); err != nil {
 			return err

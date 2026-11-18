@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -709,6 +710,16 @@ func newContractAPI(dispatch ...http.Handler) (http.Handler, *huma.OpenAPI) {
 	huma.Register(api, mergeOperation(public, huma.Operation{OperationID: "login", Method: http.MethodPost, Path: "/api/v1/auth/login", Summary: "登录并创建会话"}), func(context.Context, *authLoginInput) (*contractSessionOutput, error) {
 		return &contractSessionOutput{}, nil
 	})
+	huma.Register(api, passwordResetOperation(public, "forgotPassword", "/api/v1/auth/forgot-password", "申请密码重置验证码", http.StatusAccepted), func(context.Context, *struct {
+		Body passwordResetRequest
+	}) (*contractMessageOutput, error) {
+		return &contractMessageOutput{}, nil
+	})
+	huma.Register(api, passwordResetOperation(public, "resetPassword", "/api/v1/auth/reset-password", "使用邮箱验证码重置密码", http.StatusOK), func(context.Context, *struct {
+		Body passwordResetConfirmation
+	}) (*contractMessageOutput, error) {
+		return &contractMessageOutput{}, nil
+	})
 	huma.Register(api, huma.Operation{OperationID: "listCourses", Method: http.MethodGet, Path: "/api/v1/courses", Summary: "搜索课程目录", Tags: []string{"课程"}, Security: secured}, func(context.Context, *courseListInput) (*contractListOutput, error) {
 		return &contractListOutput{}, nil
 	})
@@ -873,6 +884,26 @@ func newContractAPI(dispatch ...http.Handler) (http.Handler, *huma.OpenAPI) {
 	imageResponse := api.OpenAPI().Paths["/uploads/{name}"].Get.Responses["200"]
 	imageResponse.Content = map[string]*huma.MediaType{"image/jpeg": {Schema: &huma.Schema{Type: "string", Format: "binary"}}}
 	return mux, api.OpenAPI()
+}
+
+func passwordResetOperation(op huma.Operation, id, path, summary string, status int) huma.Operation {
+	op.OperationID, op.Method, op.Path, op.Summary, op.DefaultStatus = id, http.MethodPost, path, summary, status
+	schema := &huma.Schema{
+		Type:       huma.TypeObject,
+		Properties: map[string]*huma.Schema{"error": {Type: huma.TypeString}},
+		Required:   []string{"error"},
+	}
+	op.Responses = make(map[string]*huma.Response)
+	for _, code := range []int{400, 429, 500, 503} {
+		op.Responses[strconv.Itoa(code)] = &huma.Response{
+			Description: http.StatusText(code),
+			Content:     map[string]*huma.MediaType{"application/json": {Schema: schema}},
+		}
+	}
+	op.Responses["429"].Headers = map[string]*huma.Param{
+		"Retry-After": {Description: "可重试前的秒数", Schema: &huma.Schema{Type: huma.TypeInteger}},
+	}
+	return op
 }
 
 func mergeOperation(base, override huma.Operation) huma.Operation {
